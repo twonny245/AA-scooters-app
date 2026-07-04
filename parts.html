@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Parts &amp; Oil — Bike Record</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --sand:#F5EFE6;
+    --ink:#1A2421;
+    --petrol:#0F3D3E;
+    --petrol-light:#175A5B;
+    --cone:#FF6B35;
+    --card:#FFFFFF;
+    --line:#DED4C2;
+    --ok:#2F855A;
+    --err:#C53030;
+    --muted:#5A6663;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--sand);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    min-height:100vh;
+  }
+  .topbar{
+    background:var(--petrol);
+    padding:14px 16px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:10px;
+  }
+  .topbar .brand{ display:flex; align-items:center; gap:8px; text-decoration:none; }
+  .topbar .brand img{ width:28px; height:28px; object-fit:contain; }
+  .topbar .brand span{
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:15px;
+    color:#fff; letter-spacing:.02em;
+  }
+  .topbar nav{ display:flex; gap:16px; }
+  .topbar nav a{
+    color:#CFE3E0; text-decoration:none; font-size:12.5px; font-weight:500;
+    padding:3px 0; border-bottom:2px solid transparent;
+  }
+  .topbar nav a:hover{ color:#fff; }
+  .topbar nav a.active{ color:#fff; border-bottom-color:var(--cone); }
+  .page-head{
+    max-width:520px; margin:0 auto; padding:22px 16px 4px;
+  }
+  .page-head h1{
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:26px;
+    color:var(--petrol); margin:0;
+  }
+  .page-head .sub{ color:var(--muted); font-size:13px; margin-top:6px; }
+  main{ max-width:520px; margin:0 auto; padding:20px 16px 60px; }
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:14px;
+    padding:20px; margin-bottom:16px;
+  }
+  .card h2{
+    font-family:'Barlow Condensed',sans-serif; font-size:15px; font-weight:600;
+    letter-spacing:.08em; text-transform:uppercase; color:var(--petrol);
+    margin:0 0 14px; display:flex; align-items:center; gap:8px;
+  }
+  .card h2::before{
+    content:""; width:7px; height:7px; border-radius:50%;
+    background:var(--cone); display:inline-block;
+  }
+  label{ display:block; font-size:12.5px; font-weight:500; color:#5A6663; margin:14px 0 5px; }
+  label:first-of-type{ margin-top:0; }
+  input, select{
+    width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:9px;
+    font-size:15px; font-family:'Inter',sans-serif; background:#FBFAF7; color:var(--ink);
+    transition:border-color .15s;
+  }
+  input:focus, select:focus{ outline:none; border-color:var(--petrol-light); background:#fff; }
+  button{
+    width:100%; padding:15px; border:none; border-radius:10px; background:var(--cone);
+    color:#fff; font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:17px;
+    letter-spacing:.04em; text-transform:uppercase; cursor:pointer; margin-top:20px;
+    transition:transform .1s, background .15s;
+  }
+  button:active{ transform:scale(.98); }
+  button:disabled{ background:#C9B9A8; cursor:not-allowed; }
+  .status{
+    margin-top:12px; font-size:13.5px; padding:10px 12px; border-radius:8px; display:none;
+  }
+  .status.ok{ display:block; background:#E8F5EE; color:var(--ok); border:1px solid #BEE3CE; }
+  .status.err{ display:block; background:#FCEBEB; color:var(--err); border:1px solid #F3C6C6; }
+  .field{ position:relative; }
+  .ac-list{
+    position:absolute; left:0; right:0; top:100%;
+    background:#fff; border:1px solid var(--line); border-top:none;
+    border-radius:0 0 9px 9px; max-height:260px; overflow-y:auto;
+    z-index:20; display:none; box-shadow:0 8px 18px rgba(15,61,62,.1);
+  }
+  .ac-list.show{ display:block; }
+  .ac-item{ padding:10px 12px; font-size:14px; cursor:pointer; border-bottom:1px solid #F0EBE0; }
+  .ac-item:last-child{ border-bottom:none; }
+  .ac-item:hover, .ac-item.hi{ background:#F5EFE6; }
+  .ac-item mark{ background:#FFE3D2; color:var(--ink); border-radius:2px; }
+  .load-status{
+    font-size:12px; color:#B36A2E; background:#FFF3E6; border:1px solid #F3D9B8;
+    border-radius:7px; padding:7px 10px; margin:-4px 0 12px; display:none;
+  }
+  .load-status.show{ display:block; }
+  .selected-bike{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    background:var(--petrol); color:#fff; border-radius:12px; padding:14px 16px;
+    margin-bottom:16px;
+  }
+  .selected-bike .name{
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:18px;
+  }
+  .selected-bike button.change-btn{
+    width:auto; margin:0; padding:8px 12px; background:rgba(255,255,255,.15);
+    font-size:12px; letter-spacing:.04em;
+  }
+  .hidden{ display:none; }
+  .empty-hint{ font-size:13px; color:#8A948F; padding:14px 2px; text-align:center; }
+  .save-bar{
+    position:sticky; bottom:0; margin-top:4px;
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a class="brand" href="index.html">
+    <img src="https://scooterrentalchiangmai.com/wp-content/uploads/2025/02/cropped-logo-3333-101x105.png" alt="AA Scooters logo">
+    <span>AA Scooters</span>
+  </a>
+  <nav>
+    <a href="index.html">Home</a>
+    <a href="customers.html">Customer Record</a>
+    <a href="pricing.html">Price Calculator</a>
+    <a href="parts.html" class="active">Parts &amp; Oil</a>
+  </nav>
+</div>
+
+<div class="page-head">
+  <h1>Parts &amp; Oil</h1>
+  <div class="sub">Search a bike, then edit its record straight from the "Parts and Oil change" tab</div>
+</div>
+
+<main>
+
+  <div id="searchCard" class="card">
+    <h2>Find a bike</h2>
+    <div class="load-status" id="loadStatus">Loading bikes…</div>
+    <label for="bikeSearch">Bike</label>
+    <div class="field">
+      <input id="bikeSearch" autocomplete="off" placeholder="Start typing a bike name…">
+      <div class="ac-list" id="acList"></div>
+    </div>
+  </div>
+
+  <div id="editSection" class="hidden">
+    <div class="selected-bike">
+      <div class="name" id="selectedBikeName"></div>
+      <button type="button" class="change-btn" id="changeBikeBtn">Change bike</button>
+    </div>
+
+    <div class="card">
+      <h2>Record</h2>
+      <div id="fieldsBox"></div>
+      <div class="save-bar">
+        <button type="button" id="saveBtn">Save changes</button>
+        <div class="status" id="statusBox"></div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// Same Apps Script web app as the Customer Record page — it now also
+// serves/updates the "Parts and Oil change" tab via the `action` field.
+const scriptUrl = 'https://script.google.com/macros/s/AKfycbxWV72e8u9NwBZS43RdOhNZsNCBa-OFZV5aEKtMgsb0MwExfl9XNt7nTvPrK--hEXTFhQ/exec';
+
+let partsData = null;     // { headers: [...], rows: [...] }
+let keyHeader = null;     // the header used as the unique bike identifier (first column)
+let rowsPromise = null;
+let currentRow = null;    // the row object currently loaded into the edit form
+
+function setLoadStatus(msg) {
+  const el = document.getElementById('loadStatus');
+  if (!msg) { el.classList.remove('show'); return; }
+  el.textContent = msg;
+  el.classList.add('show');
+}
+
+function loadParts() {
+  if (rowsPromise) return rowsPromise;
+  setLoadStatus('Loading bikes…');
+  rowsPromise = fetch(scriptUrl + '?action=parts')
+    .then(res => res.json())
+    .then(data => {
+      if (!data.success) throw new Error(data.error || 'Could not load data');
+      partsData = data;
+      keyHeader = data.headers[0];
+      setLoadStatus(null);
+      return partsData;
+    })
+    .catch(err => {
+      setLoadStatus('Could not load bikes: ' + err.message + ' — tap the field again to retry.');
+      rowsPromise = null;
+      return null;
+    });
+  return rowsPromise;
+}
+
+loadParts();
+
+// ---------------- Autocomplete on bike name ----------------
+
+function tokenMatch(value, query) {
+  if (!query) return true;
+  const v = (value || '').toString().toLowerCase();
+  const tokens = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  return tokens.every(t => v.includes(t));
+}
+
+function highlight(value, query) {
+  let out = String(value || '');
+  const tokens = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  tokens.forEach(t => {
+    if (!t) return;
+    const re = new RegExp('(' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig');
+    out = out.replace(re, '<mark>$1</mark>');
+  });
+  return out;
+}
+
+const bikeInput = document.getElementById('bikeSearch');
+const acList = document.getElementById('acList');
+let hiIndex = -1;
+
+function closeList() {
+  acList.classList.remove('show');
+  acList.innerHTML = '';
+  hiIndex = -1;
+}
+
+function openList(query) {
+  if (!partsData) return;
+  const options = partsData.rows
+    .map(r => r[keyHeader])
+    .filter(v => tokenMatch(v, query))
+    .slice(0, 10);
+  if (options.length === 0) { closeList(); return; }
+  acList.innerHTML = options.map((v, i) =>
+    `<div class="ac-item" data-index="${i}">${highlight(v, query)}</div>`
+  ).join('');
+  acList.classList.add('show');
+  hiIndex = -1;
+  Array.from(acList.children).forEach((el, i) => {
+    el.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      selectBike(options[i]);
+    });
+  });
+  acList._options = options;
+}
+
+bikeInput.addEventListener('input', () => {
+  loadParts().then(() => openList(bikeInput.value.trim()));
+});
+bikeInput.addEventListener('focus', () => {
+  if (partsData) openList(bikeInput.value.trim());
+});
+bikeInput.addEventListener('keydown', (e) => {
+  const items = Array.from(acList.children);
+  if (!items.length) return;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    hiIndex = Math.min(hiIndex + 1, items.length - 1);
+    items.forEach((el, i) => el.classList.toggle('hi', i === hiIndex));
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    hiIndex = Math.max(hiIndex - 1, 0);
+    items.forEach((el, i) => el.classList.toggle('hi', i === hiIndex));
+  } else if (e.key === 'Enter' && hiIndex >= 0) {
+    e.preventDefault();
+    selectBike(acList._options[hiIndex]);
+  } else if (e.key === 'Escape') {
+    closeList();
+  }
+});
+document.addEventListener('click', (e) => {
+  if (!bikeInput.contains(e.target) && !acList.contains(e.target)) closeList();
+});
+
+// ---------------- Selecting a bike / rendering the edit form ----------------
+
+function fieldIdFor(header, i) {
+  return 'f_' + i + '_' + header.replace(/[^a-z0-9]/gi, '_');
+}
+
+function selectBike(bikeName) {
+  const row = partsData.rows.find(r => r[keyHeader] === bikeName);
+  if (!row) return;
+  currentRow = row;
+  closeList();
+  bikeInput.value = '';
+
+  document.getElementById('selectedBikeName').textContent = bikeName;
+  document.getElementById('searchCard').classList.add('hidden');
+  document.getElementById('editSection').classList.remove('hidden');
+
+  const box = document.getElementById('fieldsBox');
+  box.innerHTML = '';
+
+  partsData.headers.forEach((header, i) => {
+    if (i === 0) return; // skip the bike-name column itself — that's the key, shown above
+    const value = row[header] || '';
+    const id = fieldIdFor(header, i);
+    const wrap = document.createElement('div');
+
+    const label = document.createElement('label');
+    label.setAttribute('for', id);
+    label.textContent = header;
+    wrap.appendChild(label);
+
+    if (header.trim().toLowerCase() === 'status') {
+      const select = document.createElement('select');
+      select.id = id;
+      select.dataset.header = header;
+      ['', 'OK', 'MONITOR', 'HIGH RISK'].forEach(opt => {
+        const o = document.createElement('option');
+        o.value = opt;
+        o.textContent = opt || '—';
+        if (opt === value) o.selected = true;
+        select.appendChild(o);
+      });
+      wrap.appendChild(select);
+    } else {
+      const input = document.createElement('input');
+      input.id = id;
+      input.dataset.header = header;
+      input.value = value;
+      input.autocomplete = 'off';
+      wrap.appendChild(input);
+    }
+
+    box.appendChild(wrap);
+  });
+
+  document.getElementById('statusBox').className = 'status';
+}
+
+document.getElementById('changeBikeBtn').addEventListener('click', () => {
+  document.getElementById('editSection').classList.add('hidden');
+  document.getElementById('searchCard').classList.remove('hidden');
+  currentRow = null;
+});
+
+// ---------------- Saving ----------------
+
+document.getElementById('saveBtn').addEventListener('click', async () => {
+  if (!currentRow) return;
+  const saveBtn = document.getElementById('saveBtn');
+  const statusBox = document.getElementById('statusBox');
+  statusBox.className = 'status';
+  saveBtn.disabled = true;
+  saveBtn.textContent = 'Saving…';
+
+  const fields = {};
+  document.querySelectorAll('#fieldsBox [data-header]').forEach(el => {
+    fields[el.dataset.header] = el.value;
+  });
+
+  const payload = {
+    action: 'updateBike',
+    bike: currentRow[keyHeader],
+    fields: fields
+  };
+
+  try {
+    const res = await fetch(scriptUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data.success) {
+      statusBox.textContent = 'Saved — "' + payload.bike + '" updated.';
+      statusBox.className = 'status ok';
+      // Update local cache so re-selecting shows the fresh values without a refetch
+      Object.assign(currentRow, fields);
+    } else {
+      throw new Error(data.error || 'Unknown error');
+    }
+  } catch (err) {
+    statusBox.textContent = 'Could not save: ' + err.message;
+    statusBox.className = 'status err';
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Save changes';
+  }
+});
+</script>
+
+</body>
+</html>
