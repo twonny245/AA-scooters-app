@@ -122,6 +122,25 @@
     margin:14px 0 5px;
   }
   label:first-of-type{margin-top:0;}
+  .deal-row{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    margin-top:14px;
+  }
+  .deal-row input[type="checkbox"]{
+    width:18px;
+    height:18px;
+    accent-color:var(--petrol);
+    cursor:pointer;
+  }
+  .deal-row label{
+    margin:0;
+    font-size:13.5px;
+    font-weight:600;
+    color:var(--ink);
+    cursor:pointer;
+  }
   input, select{
     width:100%;
     padding:11px 12px;
@@ -353,6 +372,10 @@
           </select>
         </div>
       </div>
+      <div class="deal-row">
+        <input type="checkbox" id="dealCheckbox">
+        <label for="dealCheckbox">Deal</label>
+      </div>
     </div>
 
     <button type="submit" id="submitBtn">Add to sheet</button>
@@ -478,17 +501,37 @@ form.addEventListener('submit', async (e) => {
   submitBtn.disabled = true;
   submitBtn.textContent = 'Saving…';
 
+  const rentingDateFrom = document.getElementById('rentingDateFrom').value;
+  const returnDate = document.getElementById('returnDate').value;
+  const totalPrice = document.getElementById('totalPrice').value;
+  const baseContact = contactSelect.value === 'other' ? contactOther.value.trim() : contactSelect.value;
+
+  function computeDays(fromStr, toStr) {
+    if (!fromStr || !toStr) return null;
+    const from = new Date(fromStr + 'T00:00:00');
+    const to = new Date(toStr + 'T00:00:00');
+    const diff = Math.round((to - from) / 86400000);
+    return diff > 0 ? diff : 1;
+  }
+
+  const days = computeDays(rentingDateFrom, returnDate);
+  const isDeal = document.getElementById('dealCheckbox').checked;
+  let contactWithDetails = baseContact;
+  if (baseContact && totalPrice && days) {
+    contactWithDetails = baseContact + ' (' + totalPrice + ', ' + days + (days === 1 ? ' day' : ' days') + (isDeal ? ', Deal' : '') + ')';
+  }
+
   const payload = {
     name: document.getElementById('name').value.trim(),
     nationality: document.getElementById('nationality').value.trim(),
     passport: document.getElementById('passport').value.trim(),
-    contact: contactSelect.value === 'other' ? contactOther.value.trim() : contactSelect.value,
+    contact: contactWithDetails,
     bikeModel: document.getElementById('bikeModel').value.trim(),
-    rentingDateFrom: document.getElementById('rentingDateFrom').value,
-    returnDate: document.getElementById('returnDate').value,
+    rentingDateFrom: rentingDateFrom,
+    returnDate: returnDate,
     returnTime: document.getElementById('returnTime').value,
     deliverToHotel: document.getElementById('deliverToHotel').value,
-    totalPrice: document.getElementById('totalPrice').value,
+    totalPrice: totalPrice,
     paidBy: document.getElementById('paidBy').value
   };
 
