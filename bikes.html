@@ -254,6 +254,34 @@ function findCurrentRenter(bikeName) {
   return candidates[0];
 }
 
+// Finds the most recent PAST rental of this bike (return date before today) —
+// used to order "not rented" bikes by how recently they came back.
+function findLastReturn(bikeName) {
+  if (!customerRows || !customerRows.length) return null;
+  if (!normalizeBikeName(bikeName)) return null;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const candidates = customerRows.filter(r => {
+    if (!bikeNamesMatch(r.bikeModel, bikeName)) return false;
+    const ret = parseFlexibleDate(r.returnDate);
+    if (!ret) return false;
+    ret.setHours(0, 0, 0, 0);
+    return ret < today;
+  });
+
+  if (!candidates.length) return null;
+
+  candidates.sort((a, b) => {
+    const da = parseFlexibleDate(a.returnDate) || new Date(0);
+    const db = parseFlexibleDate(b.returnDate) || new Date(0);
+    return db - da;
+  });
+
+  return candidates[0];
+}
+
 // Case-insensitive, multi-word "contains all tokens" matcher — same rule
 // used on the Customer Record search fields.
 function tokenMatch(value, query) {
@@ -305,10 +333,15 @@ function render() {
 
   const matches = bikeNames
     .filter(name => tokenMatch(name, query))
-    .map(name => ({ name, renter: findCurrentRenter(name) }));
+    .map(name => {
+      const renter = findCurrentRenter(name);
+      const lastReturn = renter ? null : findLastReturn(name);
+      return { name, renter, lastReturn };
+    });
 
-  // Rented bikes first, soonest due-back at the very top; not-rented bikes
-  // follow, alphabetically.
+  // Rented bikes first, soonest due-back at the very top. Not-rented bikes
+  // follow, most-recently-returned first; bikes with no rental history at
+  // all go last, alphabetically.
   matches.sort((a, b) => {
     if (a.renter && b.renter) {
       const da = parseFlexibleDate(a.renter.returnDate) || new Date(8640000000000000);
@@ -317,6 +350,12 @@ function render() {
     }
     if (a.renter && !b.renter) return -1;
     if (!a.renter && b.renter) return 1;
+
+    const da = a.lastReturn ? parseFlexibleDate(a.lastReturn.returnDate) : null;
+    const db = b.lastReturn ? parseFlexibleDate(b.lastReturn.returnDate) : null;
+    if (da && db) return db - da;
+    if (da && !db) return -1;
+    if (!da && db) return 1;
     return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
   });
 
