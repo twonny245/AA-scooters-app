@@ -92,7 +92,13 @@
   .bc-metric.risk-high{ color:var(--high); }
   .bc-metric.risk-monitor{ color:var(--monitor); }
   .bc-metric.risk-ok{ color:var(--ok); }
-  .bc-details{ font-size:12px; color:var(--muted); margin-top:4px; line-height:1.5; }
+  .bc-renter{
+    font-size:12.5px; color:var(--petrol); margin-top:6px;
+    background:#EEF5F2; border:1px solid #D8E8E1; border-radius:7px;
+    padding:5px 9px; display:inline-block;
+  }
+  .bc-renter b{ font-weight:700; }
+  .bc-details{ font-size:12px; color:var(--muted); margin-top:6px; line-height:1.5; }
   .bc-details b{ color:var(--ink); font-weight:600; }
 
   .no-data-section{ margin-top:22px; }
@@ -136,6 +142,7 @@
 const scriptUrl = 'https://script.google.com/macros/s/AKfycbxWV72e8u9NwBZS43RdOhNZsNCBa-OFZV5aEKtMgsb0MwExfl9XNt7nTvPrK--hEXTFhQ/exec';
 
 let partsData = null;
+let customerRows = null;
 let activeTab = 'km';
 
 function setLoadStatus(msg) {
@@ -147,17 +154,70 @@ function setLoadStatus(msg) {
 
 function loadParts() {
   setLoadStatus('Loading bikes…');
-  return fetch(scriptUrl + '?action=parts')
-    .then(res => res.json())
-    .then(data => {
-      if (!data.success) throw new Error(data.error || 'Could not load data');
-      partsData = data;
+  return Promise.all([
+    fetch(scriptUrl + '?action=parts').then(res => res.json()),
+    fetch(scriptUrl).then(res => res.json()).catch(() => ({ success: false }))
+  ])
+    .then(([partsResult, customerResult]) => {
+      if (!partsResult.success) throw new Error(partsResult.error || 'Could not load data');
+      partsData = partsResult;
+      customerRows = customerResult && customerResult.success ? customerResult.rows : [];
       setLoadStatus(null);
       render();
     })
     .catch(err => {
       setLoadStatus('Could not load bikes: ' + err.message);
     });
+}
+
+// Parse dates in the dd/MM/yyyy format the sheet returns (falls back to
+// whatever the JS Date constructor can make sense of).
+function parseFlexibleDate(str) {
+  if (!str) return null;
+  str = String(str).trim();
+  var slashMatch = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (slashMatch) {
+    var d = parseInt(slashMatch[1], 10), m = parseInt(slashMatch[2], 10) - 1, y = parseInt(slashMatch[3], 10);
+    var dt = new Date(y, m, d);
+    if (!isNaN(dt.getTime())) return dt;
+  }
+  var dt2 = new Date(str);
+  if (!isNaN(dt2.getTime())) return dt2;
+  return null;
+}
+
+function normalizeBikeName(s) {
+  return (s || '').toString().trim().toLowerCase();
+}
+
+// Finds the customer record currently holding this bike: same bike model,
+// with a return date of today or later. If more than one matches (shouldn't
+// normally happen), the most recently started rental wins.
+function findCurrentRenter(bikeName) {
+  if (!customerRows || !customerRows.length) return null;
+  const target = normalizeBikeName(bikeName);
+  if (!target) return null;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const candidates = customerRows.filter(r => {
+    if (normalizeBikeName(r.bikeModel) !== target) return false;
+    const ret = parseFlexibleDate(r.returnDate);
+    if (!ret) return false;
+    ret.setHours(0, 0, 0, 0);
+    return ret >= today;
+  });
+
+  if (!candidates.length) return null;
+
+  candidates.sort((a, b) => {
+    const da = parseFlexibleDate(a.rentingDateFrom) || new Date(0);
+    const db = parseFlexibleDate(b.rentingDateFrom) || new Date(0);
+    return db - da;
+  });
+
+  return candidates[0];
 }
 
 function parseNum(v) {
@@ -188,12 +248,18 @@ function cardHtml(row, headers, metricLabel, metricValue) {
   const lastCheck = row[findHeader(headers, 'last oil check')] || '—';
   const daysSince = row[findHeader(headers, 'days since last oil change')] || '—';
 
+  const renter = findCurrentRenter(row[bikeHeader]);
+  const renterLine = renter
+    ? `<div class="bc-renter">🧑‍✈️ Rented to: <b>${renter.name || 'Unknown'}</b>${renter.contact ? ' &nbsp;·&nbsp; ' + renter.contact : ''}</div>`
+    : '';
+
   return `
     <a class="bike-card ${rClass}" href="parts.html?bike=${encodeURIComponent(row[bikeHeader])}">
       <div class="bc-top">
         <div class="bc-name">${row[bikeHeader]}</div>
         <div class="bc-metric ${rClass}">${metricValue} ${metricLabel}</div>
       </div>
+      ${renterLine}
       <div class="bc-details">
         <b>Status:</b> ${status || '—'} &nbsp; <b>Oil change:</b> ${oilChange} &nbsp; <b>Days since:</b> ${daysSince}<br>
         <b>Last oil check:</b> ${lastCheck} km &nbsp; <b>Next oil change:</b> ${nextOil} km
