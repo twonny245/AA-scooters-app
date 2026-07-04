@@ -399,7 +399,7 @@ function selectBike(bikeName) {
         select.appendChild(o);
       });
       wrap.appendChild(select);
-    } else if (header.trim().toLowerCase() === 'date') {
+    } else if (['date', 'oil change'].includes(header.trim().toLowerCase())) {
       const input = document.createElement('input');
       input.type = 'date';
       input.id = id;
