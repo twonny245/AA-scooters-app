@@ -303,6 +303,51 @@ function fieldIdFor(header, i) {
   return 'f_' + i + '_' + header.replace(/[^a-z0-9]/gi, '_');
 }
 
+// The sheet stores dates as dd/mm/yyyy text. Native <input type="date">
+// needs yyyy-mm-dd, so convert both ways for the "date" column.
+function ddmmyyyyToInputValue(str) {
+  if (!str) return '';
+  const parts = str.toString().trim().split('/');
+  if (parts.length !== 3) return '';
+  let [d, m, y] = parts;
+  d = d.padStart(2, '0');
+  m = m.padStart(2, '0');
+  if (y.length === 2) y = '20' + y;
+  if (!/^\d{4}$/.test(y) || !/^\d{2}$/.test(m) || !/^\d{2}$/.test(d)) return '';
+  return y + '-' + m + '-' + d;
+}
+function inputValueToDdMmYyyy(val) {
+  if (!val) return '';
+  const parts = val.split('-'); // yyyy-mm-dd
+  if (parts.length !== 3) return '';
+  return parts[2] + '/' + parts[1] + '/' + parts[0];
+}
+
+// Converts the sheet's "dd/mm/yyyy" text into the yyyy-mm-dd format
+// <input type="date"> requires. Returns '' if it can't be parsed
+// (the picker just opens empty rather than losing the original text).
+function ddmmyyyyToInputValue(str) {
+  if (!str) return '';
+  const parts = str.trim().split('/');
+  if (parts.length !== 3) return '';
+  let [d, m, y] = parts;
+  d = d.padStart(2, '0');
+  m = m.padStart(2, '0');
+  if (y.length === 2) y = '20' + y;
+  if (!/^\d{2}$/.test(d) || !/^\d{2}$/.test(m) || !/^\d{4}$/.test(y)) return '';
+  return `${y}-${m}-${d}`;
+}
+
+// Converts back from yyyy-mm-dd (what the date input gives us) to the
+// sheet's usual dd/mm/yyyy text.
+function inputValueToDdMmYyyy(val) {
+  if (!val) return '';
+  const parts = val.split('-');
+  if (parts.length !== 3) return '';
+  const [y, m, d] = parts;
+  return `${d}/${m}/${y}`;
+}
+
 // Everything after the "horn switch" column gets collapsed into a single
 // "Notes" box instead of one field per column. Returns the header-array
 // index of "horn switch" itself, or -1 if that column isn't present.
@@ -354,6 +399,14 @@ function selectBike(bikeName) {
         select.appendChild(o);
       });
       wrap.appendChild(select);
+    } else if (header.trim().toLowerCase() === 'date') {
+      const input = document.createElement('input');
+      input.type = 'date';
+      input.id = id;
+      input.dataset.header = header;
+      input.dataset.isDate = 'true';
+      input.value = ddmmyyyyToInputValue(value);
+      wrap.appendChild(input);
     } else {
       const input = document.createElement('input');
       input.id = id;
@@ -410,7 +463,9 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
 
   const fields = {};
   document.querySelectorAll('#fieldsBox [data-header]').forEach(el => {
-    fields[el.dataset.header] = el.value;
+    fields[el.dataset.header] = el.dataset.isDate === 'true'
+      ? inputValueToDdMmYyyy(el.value)
+      : el.value;
   });
 
   // The Notes box represents several trailing columns folded into one.
