@@ -26,6 +26,46 @@
     font-family:'Inter',sans-serif;
     min-height:100vh;
   }
+  .topbar{
+    background:var(--petrol);
+    padding:14px 16px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:10px;
+  }
+  .topbar .brand{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    text-decoration:none;
+  }
+  .topbar .brand img{
+    width:28px; height:28px;
+    object-fit:contain;
+  }
+  .topbar .brand span{
+    font-family:'Barlow Condensed',sans-serif;
+    font-weight:700;
+    font-size:15px;
+    color:#fff;
+    letter-spacing:.02em;
+  }
+  .topbar nav{
+    display:flex;
+    gap:16px;
+  }
+  .topbar nav a{
+    color:#CFE3E0;
+    text-decoration:none;
+    font-size:12.5px;
+    font-weight:500;
+    padding:3px 0;
+    border-bottom:2px solid transparent;
+  }
+  .topbar nav a:hover{ color:#fff; }
+  .topbar nav a.active{ color:#fff; border-bottom-color:var(--cone); }
   .roadbar{
     background:var(--petrol);
     padding:22px 20px 26px;
@@ -233,6 +273,18 @@
 </style>
 </head>
 <body>
+
+<div class="topbar">
+  <a class="brand" href="index.html">
+    <img src="https://scooterrentalchiangmai.com/wp-content/uploads/2025/02/cropped-logo-3333-101x105.png" alt="AA Scooters logo">
+    <span>AA Scooters</span>
+  </a>
+  <nav>
+    <a href="index.html">Home</a>
+    <a href="customers.html" class="active">Customer Record</a>
+    <a href="pricing.html">Price Calculator</a>
+  </nav>
+</div>
 
 <div class="roadbar">
   <div class="eyebrow">Shoots · Customer records</div>
