@@ -274,8 +274,7 @@ function highlight(value, query) {
   return out;
 }
 
-function bikeCardHtml(name, query) {
-  const renter = findCurrentRenter(name);
+function bikeCardHtml(name, renter, query) {
   const rented = !!renter;
   const cls = rented ? 'rented' : 'not-rented';
 
@@ -304,7 +303,22 @@ function render() {
   const countEl = document.getElementById('resultsCount');
   const query = document.getElementById('bikeSearch').value.trim();
 
-  const matches = bikeNames.filter(name => tokenMatch(name, query));
+  const matches = bikeNames
+    .filter(name => tokenMatch(name, query))
+    .map(name => ({ name, renter: findCurrentRenter(name) }));
+
+  // Rented bikes first, soonest due-back at the very top; not-rented bikes
+  // follow, alphabetically.
+  matches.sort((a, b) => {
+    if (a.renter && b.renter) {
+      const da = parseFlexibleDate(a.renter.returnDate) || new Date(8640000000000000);
+      const db = parseFlexibleDate(b.renter.returnDate) || new Date(8640000000000000);
+      return da - db;
+    }
+    if (a.renter && !b.renter) return -1;
+    if (!a.renter && b.renter) return 1;
+    return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+  });
 
   countEl.textContent = matches.length + (matches.length === 1 ? ' bike' : ' bikes');
 
@@ -313,7 +327,7 @@ function render() {
     return;
   }
 
-  listBox.innerHTML = matches.map(name => bikeCardHtml(name, query)).join('');
+  listBox.innerHTML = matches.map(m => bikeCardHtml(m.name, m.renter, query)).join('');
 }
 
 /* ---------------- Search box with live narrowing + autocomplete ---------------- */
