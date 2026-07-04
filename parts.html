@@ -141,6 +141,7 @@
     <a href="customers.html">Customer Record</a>
     <a href="pricing.html">Price Calculator</a>
     <a href="parts.html" class="active">Parts &amp; Oil</a>
+    <a href="oilchange.html">Oil Change</a>
   </nav>
 </div>
 
@@ -217,6 +218,15 @@ function loadParts() {
 }
 
 loadParts();
+
+// If we arrived from the Oil Change list with ?bike=NAME, jump straight
+// into that bike's edit form once the data is ready.
+const urlBike = new URLSearchParams(window.location.search).get('bike');
+if (urlBike) {
+  loadParts().then(() => {
+    if (partsData) selectBike(urlBike);
+  });
+}
 
 // ---------------- Autocomplete on bike name ----------------
 

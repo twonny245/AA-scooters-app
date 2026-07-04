@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Oil Change — Priority List</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --sand:#F5EFE6;
+    --ink:#1A2421;
+    --petrol:#0F3D3E;
+    --petrol-light:#175A5B;
+    --cone:#FF6B35;
+    --card:#FFFFFF;
+    --line:#DED4C2;
+    --muted:#5A6663;
+    --high:#C53030;
+    --monitor:#B7791F;
+    --ok:#2F855A;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--sand); color:var(--ink);
+    font-family:'Inter',sans-serif; min-height:100vh;
+  }
+  .topbar{
+    background:var(--petrol); padding:14px 16px; display:flex;
+    align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;
+  }
+  .topbar .brand{ display:flex; align-items:center; gap:8px; text-decoration:none; }
+  .topbar .brand img{ width:28px; height:28px; object-fit:contain; }
+  .topbar .brand span{
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:15px;
+    color:#fff; letter-spacing:.02em;
+  }
+  .topbar nav{ display:flex; gap:16px; flex-wrap:wrap; }
+  .topbar nav a{
+    color:#CFE3E0; text-decoration:none; font-size:12.5px; font-weight:500;
+    padding:3px 0; border-bottom:2px solid transparent;
+  }
+  .topbar nav a:hover{ color:#fff; }
+  .topbar nav a.active{ color:#fff; border-bottom-color:var(--cone); }
+  .page-head{ max-width:520px; margin:0 auto; padding:22px 16px 4px; }
+  .page-head h1{
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:26px;
+    color:var(--petrol); margin:0;
+  }
+  .page-head .sub{ color:var(--muted); font-size:13px; margin-top:6px; }
+
+  .tabs{ display:flex; gap:8px; max-width:520px; margin:0 auto; padding:14px 16px 0; }
+  .tab-btn{
+    flex:1; border:1px solid var(--line); background:#fff; color:var(--petrol);
+    padding:11px; font-size:13.5px; letter-spacing:.06em; text-transform:uppercase;
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; border-radius:10px;
+    cursor:pointer;
+  }
+  .tab-btn.active{ background:var(--petrol); color:#fff; border-color:var(--petrol); }
+
+  main{ max-width:520px; margin:0 auto; padding:16px 16px 60px; }
+
+  .load-status{
+    font-size:12px; color:#B36A2E; background:#FFF3E6; border:1px solid #F3D9B8;
+    border-radius:7px; padding:7px 10px; margin-bottom:12px; display:none;
+  }
+  .load-status.show{ display:block; }
+
+  .list-note{
+    font-size:12px; color:#7A8A86; margin:4px 2px 12px;
+    font-family:'Barlow Condensed',sans-serif; letter-spacing:.06em; text-transform:uppercase;
+  }
+
+  .bike-card{
+    display:block; text-decoration:none; color:inherit;
+    background:var(--card); border:1px solid var(--line); border-left:5px solid var(--line);
+    border-radius:10px; padding:12px 14px; margin-bottom:10px;
+    transition:transform .1s, box-shadow .12s;
+  }
+  .bike-card:active{ transform:scale(.99); }
+  .bike-card.risk-high{ border-left-color:var(--high); }
+  .bike-card.risk-monitor{ border-left-color:var(--monitor); }
+  .bike-card.risk-ok{ border-left-color:var(--ok); }
+
+  .bc-top{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+  .bc-name{
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:17px; color:var(--petrol);
+  }
+  .bc-metric{
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:15px; white-space:nowrap;
+  }
+  .bc-metric.risk-high{ color:var(--high); }
+  .bc-metric.risk-monitor{ color:var(--monitor); }
+  .bc-metric.risk-ok{ color:var(--ok); }
+  .bc-details{ font-size:12px; color:var(--muted); margin-top:4px; line-height:1.5; }
+  .bc-details b{ color:var(--ink); font-weight:600; }
+
+  .no-data-section{ margin-top:22px; }
+  .empty-hint{ font-size:13px; color:#8A948F; padding:14px 2px; text-align:center; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a class="brand" href="index.html">
+    <img src="https://scooterrentalchiangmai.com/wp-content/uploads/2025/02/cropped-logo-3333-101x105.png" alt="AA Scooters logo">
+    <span>AA Scooters</span>
+  </a>
+  <nav>
+    <a href="index.html">Home</a>
+    <a href="customers.html">Customer Record</a>
+    <a href="pricing.html">Price Calculator</a>
+    <a href="parts.html">Parts &amp; Oil</a>
+    <a href="oilchange.html" class="active">Oil Change</a>
+  </nav>
+</div>
+
+<div class="page-head">
+  <h1>Oil Change</h1>
+  <div class="sub">Bikes ranked by how soon they need an oil change</div>
+</div>
+
+<div class="tabs">
+  <button type="button" class="tab-btn active" id="tabKm">Kilometers</button>
+  <button type="button" class="tab-btn" id="tabDate">Date</button>
+</div>
+
+<main>
+  <div class="load-status" id="loadStatus">Loading bikes…</div>
+  <div class="list-note" id="listNote"></div>
+  <div id="listBox"></div>
+  <div class="no-data-section" id="noDataSection"></div>
+</main>
+
+<script>
+const scriptUrl = 'https://script.google.com/macros/s/AKfycbxWV72e8u9NwBZS43RdOhNZsNCBa-OFZV5aEKtMgsb0MwExfl9XNt7nTvPrK--hEXTFhQ/exec';
+
+let partsData = null;
+let activeTab = 'km';
+
+function setLoadStatus(msg) {
+  const el = document.getElementById('loadStatus');
+  if (!msg) { el.classList.remove('show'); return; }
+  el.textContent = msg;
+  el.classList.add('show');
+}
+
+function loadParts() {
+  setLoadStatus('Loading bikes…');
+  return fetch(scriptUrl + '?action=parts')
+    .then(res => res.json())
+    .then(data => {
+      if (!data.success) throw new Error(data.error || 'Could not load data');
+      partsData = data;
+      setLoadStatus(null);
+      render();
+    })
+    .catch(err => {
+      setLoadStatus('Could not load bikes: ' + err.message);
+    });
+}
+
+function parseNum(v) {
+  if (v === undefined || v === null) return NaN;
+  const cleaned = v.toString().replace(/[^0-9.\-]/g, '');
+  if (cleaned === '' || cleaned === '-') return NaN;
+  return parseFloat(cleaned);
+}
+
+function riskClass(status) {
+  const s = (status || '').toString().trim().toUpperCase();
+  if (s === 'HIGH RISK') return 'risk-high';
+  if (s === 'MONITOR') return 'risk-monitor';
+  if (s === 'OK') return 'risk-ok';
+  return '';
+}
+
+function findHeader(headers, name) {
+  return headers.find(h => h.trim().toLowerCase() === name);
+}
+
+function cardHtml(row, headers, metricLabel, metricValue) {
+  const bikeHeader = headers[0];
+  const status = row[findHeader(headers, 'status')] || '';
+  const rClass = riskClass(status);
+  const oilChange = row[findHeader(headers, 'oil change')] || '—';
+  const nextOil = row[findHeader(headers, 'next oil change')] || '—';
+  const lastCheck = row[findHeader(headers, 'last oil check')] || '—';
+  const daysSince = row[findHeader(headers, 'days since last oil change')] || '—';
+
+  return `
+    <a class="bike-card ${rClass}" href="parts.html?bike=${encodeURIComponent(row[bikeHeader])}">
+      <div class="bc-top">
+        <div class="bc-name">${row[bikeHeader]}</div>
+        <div class="bc-metric ${rClass}">${metricValue} ${metricLabel}</div>
+      </div>
+      <div class="bc-details">
+        <b>Status:</b> ${status || '—'} &nbsp; <b>Oil change:</b> ${oilChange} &nbsp; <b>Days since:</b> ${daysSince}<br>
+        <b>Last oil check:</b> ${lastCheck} km &nbsp; <b>Next oil change:</b> ${nextOil} km
+      </div>
+    </a>
+  `;
+}
+
+function render() {
+  if (!partsData) return;
+  const headers = partsData.headers;
+  const listBox = document.getElementById('listBox');
+  const noDataSection = document.getElementById('noDataSection');
+  const listNote = document.getElementById('listNote');
+
+  if (activeTab === 'km') {
+    const nextH = findHeader(headers, 'next oil change');
+    const lastH = findHeader(headers, 'last oil check');
+
+    const withData = [];
+    const withoutData = [];
+
+    partsData.rows.forEach(row => {
+      const next = parseNum(row[nextH]);
+      const last = parseNum(row[lastH]);
+      if (isNaN(next) || isNaN(last)) {
+        withoutData.push(row);
+      } else {
+        withData.push({ row, gap: next - last });
+      }
+    });
+
+    withData.sort((a, b) => a.gap - b.gap);
+
+    listNote.textContent = 'Soonest due (smallest km remaining) at top';
+    listBox.innerHTML = withData.map(item =>
+      cardHtml(item.row, headers, 'km remaining', item.gap.toLocaleString('en-US'))
+    ).join('');
+
+    noDataSection.innerHTML = withoutData.length
+      ? '<div class="list-note">Missing km data</div>' +
+        withoutData.map(row => cardHtml(row, headers, '', '—')).join('')
+      : '';
+
+  } else {
+    const daysH = findHeader(headers, 'days since last oil change');
+
+    const withData = [];
+    const withoutData = [];
+
+    partsData.rows.forEach(row => {
+      const days = parseNum(row[daysH]);
+      if (isNaN(days)) {
+        withoutData.push(row);
+      } else {
+        withData.push({ row, days });
+      }
+    });
+
+    withData.sort((a, b) => b.days - a.days);
+
+    listNote.textContent = 'Longest since last change (most overdue) at top';
+    listBox.innerHTML = withData.map(item =>
+      cardHtml(item.row, headers, 'days since change', item.days.toLocaleString('en-US'))
+    ).join('');
+
+    noDataSection.innerHTML = withoutData.length
+      ? '<div class="list-note">Missing date data</div>' +
+        withoutData.map(row => cardHtml(row, headers, '', '—')).join('')
+      : '';
+  }
+
+  if (!listBox.innerHTML) {
+    listBox.innerHTML = '<div class="empty-hint">No bikes to show.</div>';
+  }
+}
+
+document.getElementById('tabKm').addEventListener('click', () => {
+  activeTab = 'km';
+  document.getElementById('tabKm').classList.add('active');
+  document.getElementById('tabDate').classList.remove('active');
+  render();
+});
+document.getElementById('tabDate').addEventListener('click', () => {
+  activeTab = 'date';
+  document.getElementById('tabDate').classList.add('active');
+  document.getElementById('tabKm').classList.remove('active');
+  render();
+});
+
+loadParts();
+</script>
+
+</body>
+</html>
