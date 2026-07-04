@@ -101,7 +101,13 @@
   }
   .bc-tag.rented{ color:var(--rented); }
   .bc-tag.not-rented{ color:var(--ok); }
-  .bc-details{ font-size:12.5px; color:var(--muted); margin-top:5px; line-height:1.5; }
+  .bc-renter{
+    font-size:12.5px; color:var(--petrol); margin-top:6px;
+    background:#EEF5F2; border:1px solid #D8E8E1; border-radius:7px;
+    padding:5px 9px; display:inline-block;
+  }
+  .bc-renter b{ font-weight:700; }
+  .bc-details{ font-size:12.5px; color:var(--muted); margin-top:6px; line-height:1.5; }
   .bc-details b{ color:var(--ink); font-weight:600; }
 
   .empty-hint{ font-size:13px; color:#8A948F; padding:14px 2px; text-align:center; }
@@ -273,8 +279,12 @@ function bikeCardHtml(name, query) {
   const rented = !!renter;
   const cls = rented ? 'rented' : 'not-rented';
 
+  const renterLine = rented
+    ? `<div class="bc-renter">🧑‍✈️ Rented to: <b>${renter.name || 'Unknown'}</b>${renter.contact ? ' &nbsp;·&nbsp; ' + renter.contact : ''}</div>`
+    : '';
+
   const details = rented
-    ? `<b>Rented to:</b> ${renter.name || 'Unknown'} &nbsp; <b>Due back:</b> ${formatDateDisplay(renter.returnDate)}`
+    ? `<b>Due back:</b> ${formatDateDisplay(renter.returnDate)}`
     : `Not rented`;
 
   return `
@@ -283,6 +293,7 @@ function bikeCardHtml(name, query) {
         <div class="bc-name">${highlight(name, query)}</div>
         <div class="bc-tag ${cls}">${rented ? 'Rented' : 'Not rented'}</div>
       </div>
+      ${renterLine}
       <div class="bc-details">${details}</div>
     </div>
   `;
