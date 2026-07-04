@@ -226,8 +226,11 @@ function bikeNamesMatch(a, b) {
 }
 
 // Finds the customer record currently holding this bike: same bike model,
-// with a return date of today or later. If more than one matches, the most
-// recently started rental wins.
+// with a return date of today or later. The same bike can have several old,
+// already-returned rows earlier in the sheet — if more than one row still
+// qualifies, the one lowest down / most recently entered in the sheet wins,
+// since that's the actual current booking (more reliable than trusting a
+// possibly mistyped "renting date from" for the tiebreak).
 function findCurrentRenter(bikeName) {
   if (!customerRows || !customerRows.length) return null;
   if (!normalizeBikeName(bikeName)) return null;
@@ -235,23 +238,21 @@ function findCurrentRenter(bikeName) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const candidates = customerRows.filter(r => {
-    if (!bikeNamesMatch(r.bikeModel, bikeName)) return false;
-    const ret = parseFlexibleDate(r.returnDate);
-    if (!ret) return false;
-    ret.setHours(0, 0, 0, 0);
-    return ret >= today;
-  });
+  const candidates = customerRows
+    .map((r, sheetIndex) => ({ r, sheetIndex }))
+    .filter(({ r }) => {
+      if (!bikeNamesMatch(r.bikeModel, bikeName)) return false;
+      const ret = parseFlexibleDate(r.returnDate);
+      if (!ret) return false;
+      ret.setHours(0, 0, 0, 0);
+      return ret >= today;
+    });
 
   if (!candidates.length) return null;
 
-  candidates.sort((a, b) => {
-    const da = parseFlexibleDate(a.rentingDateFrom) || new Date(0);
-    const db = parseFlexibleDate(b.rentingDateFrom) || new Date(0);
-    return db - da;
-  });
+  candidates.sort((a, b) => b.sheetIndex - a.sheetIndex);
 
-  return candidates[0];
+  return candidates[0].r;
 }
 
 // Finds the most recent PAST rental of this bike (return date before today) —
