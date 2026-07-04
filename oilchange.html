@@ -133,6 +133,7 @@
 
 <main>
   <div class="load-status" id="loadStatus">Loading bikes…</div>
+  <div class="load-status" id="rentalStatus"></div>
   <div class="list-note" id="listNote"></div>
   <div id="listBox"></div>
   <div class="no-data-section" id="noDataSection"></div>
@@ -152,16 +153,29 @@ function setLoadStatus(msg) {
   el.classList.add('show');
 }
 
+function setRentalStatus(msg) {
+  const el = document.getElementById('rentalStatus');
+  if (!msg) { el.classList.remove('show'); return; }
+  el.textContent = msg;
+  el.classList.add('show');
+}
+
 function loadParts() {
   setLoadStatus('Loading bikes…');
   return Promise.all([
     fetch(scriptUrl + '?action=parts').then(res => res.json()),
-    fetch(scriptUrl).then(res => res.json()).catch(() => ({ success: false }))
+    fetch(scriptUrl).then(res => res.json()).catch(err => ({ success: false, error: err.message }))
   ])
     .then(([partsResult, customerResult]) => {
       if (!partsResult.success) throw new Error(partsResult.error || 'Could not load data');
       partsData = partsResult;
-      customerRows = customerResult && customerResult.success ? customerResult.rows : [];
+      if (customerResult && customerResult.success) {
+        customerRows = customerResult.rows;
+        setRentalStatus(null);
+      } else {
+        customerRows = [];
+        setRentalStatus('Rental info unavailable (' + (customerResult && customerResult.error ? customerResult.error : 'unknown error') + ') — bikes will show without "Rented to".');
+      }
       setLoadStatus(null);
       render();
     })
@@ -186,8 +200,27 @@ function parseFlexibleDate(str) {
   return null;
 }
 
+// Strips things like "(155)" and punctuation, collapses whitespace, and
+// lowercases — so "Aerox White (155)" and "aerox white" line up.
 function normalizeBikeName(s) {
-  return (s || '').toString().trim().toLowerCase();
+  return (s || '').toString()
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+// True if the two (normalized) names are the same bike, allowing for one
+// being a shorter/longer version of the other (e.g. missing the cc suffix,
+// or a couple of extra/missing words) — since the Customer Record bike
+// field is free text and won't always exactly match the Parts sheet.
+function bikeNamesMatch(a, b) {
+  const na = normalizeBikeName(a);
+  const nb = normalizeBikeName(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  return na.includes(nb) || nb.includes(na);
 }
 
 // Finds the customer record currently holding this bike: same bike model,
@@ -195,14 +228,13 @@ function normalizeBikeName(s) {
 // normally happen), the most recently started rental wins.
 function findCurrentRenter(bikeName) {
   if (!customerRows || !customerRows.length) return null;
-  const target = normalizeBikeName(bikeName);
-  if (!target) return null;
+  if (!normalizeBikeName(bikeName)) return null;
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
   const candidates = customerRows.filter(r => {
-    if (normalizeBikeName(r.bikeModel) !== target) return false;
+    if (!bikeNamesMatch(r.bikeModel, bikeName)) return false;
     const ret = parseFlexibleDate(r.returnDate);
     if (!ret) return false;
     ret.setHours(0, 0, 0, 0);
