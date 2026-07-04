@@ -73,12 +73,13 @@
   }
   label{ display:block; font-size:12.5px; font-weight:500; color:#5A6663; margin:14px 0 5px; }
   label:first-of-type{ margin-top:0; }
-  input, select{
+  input, select, textarea{
     width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:9px;
     font-size:15px; font-family:'Inter',sans-serif; background:#FBFAF7; color:var(--ink);
     transition:border-color .15s;
   }
-  input:focus, select:focus{ outline:none; border-color:var(--petrol-light); background:#fff; }
+  textarea{ min-height:110px; resize:vertical; line-height:1.5; }
+  input:focus, select:focus, textarea:focus{ outline:none; border-color:var(--petrol-light); background:#fff; }
   button{
     width:100%; padding:15px; border:none; border-radius:10px; background:var(--cone);
     color:#fff; font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:17px;
@@ -302,6 +303,13 @@ function fieldIdFor(header, i) {
   return 'f_' + i + '_' + header.replace(/[^a-z0-9]/gi, '_');
 }
 
+// Everything after the "horn switch" column gets collapsed into a single
+// "Notes" box instead of one field per column. Returns the header-array
+// index of "horn switch" itself, or -1 if that column isn't present.
+function findNotesGroupStart(headers) {
+  return headers.findIndex(h => h.trim().toLowerCase() === 'horn switch');
+}
+
 function selectBike(bikeName) {
   const row = partsData.rows.find(r => r[keyHeader] === bikeName);
   if (!row) return;
@@ -316,8 +324,15 @@ function selectBike(bikeName) {
   const box = document.getElementById('fieldsBox');
   box.innerHTML = '';
 
-  partsData.headers.forEach((header, i) => {
+  const headers = partsData.headers;
+  const notesStart = findNotesGroupStart(headers); // index of "horn switch", or -1
+  // Fields up through and including "horn switch" render individually;
+  // anything after that is folded into one combined Notes box.
+  const individualEnd = notesStart === -1 ? headers.length : notesStart + 1;
+
+  headers.forEach((header, i) => {
     if (i === 0) return; // skip the bike-name column itself — that's the key, shown above
+    if (i >= individualEnd) return; // handled by the Notes box below
     const value = row[header] || '';
     const id = fieldIdFor(header, i);
     const wrap = document.createElement('div');
@@ -351,6 +366,29 @@ function selectBike(bikeName) {
     box.appendChild(wrap);
   });
 
+  // Combined Notes box for every column after "horn switch"
+  if (notesStart !== -1 && individualEnd < headers.length) {
+    const extraHeaders = headers.slice(individualEnd);
+    const combinedValue = extraHeaders
+      .map(h => (row[h] || '').toString().trim())
+      .filter(v => v)
+      .join('\n');
+
+    const wrap = document.createElement('div');
+    const label = document.createElement('label');
+    label.setAttribute('for', 'notesField');
+    label.textContent = 'Notes';
+    wrap.appendChild(label);
+
+    const textarea = document.createElement('textarea');
+    textarea.id = 'notesField';
+    textarea.value = combinedValue;
+    textarea.dataset.extraHeaders = JSON.stringify(extraHeaders);
+    wrap.appendChild(textarea);
+
+    box.appendChild(wrap);
+  }
+
   document.getElementById('statusBox').className = 'status';
 }
 
@@ -374,6 +412,17 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
   document.querySelectorAll('#fieldsBox [data-header]').forEach(el => {
     fields[el.dataset.header] = el.value;
   });
+
+  // The Notes box represents several trailing columns folded into one.
+  // Write its text into the first of those columns and clear the rest,
+  // so the data actually lives in a single place going forward.
+  const notesTextarea = document.getElementById('notesField');
+  if (notesTextarea) {
+    const extraHeaders = JSON.parse(notesTextarea.dataset.extraHeaders);
+    extraHeaders.forEach((h, i) => {
+      fields[h] = i === 0 ? notesTextarea.value : '';
+    });
+  }
 
   const payload = {
     action: 'updateBike',
