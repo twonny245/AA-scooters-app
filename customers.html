@@ -518,7 +518,7 @@ form.addEventListener('submit', async (e) => {
   const isDeal = document.getElementById('dealCheckbox').checked;
   let contactWithDetails = baseContact;
   if (baseContact && totalPrice && days) {
-    contactWithDetails = baseContact + ' (' + totalPrice + ', ' + days + (days === 1 ? ' day' : ' days') + (isDeal ? ', Deal' : '') + ')';
+    contactWithDetails = baseContact + ' (' + totalPrice + ', ' + days + (days === 1 ? ' day' : ' days') + ')' + (isDeal ? ' Deal' : '');
   }
 
   const payload = {
