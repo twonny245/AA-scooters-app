@@ -444,6 +444,16 @@ function getBikeTaxCategories() {
     var boxCol = headerRow.indexOf('box', searchFrom);
     if (boxCol === -1) boxCol = headerRow.indexOf('box');
 
+    // Plate number lives near the front of the sheet (e.g. "Plate No."),
+    // not next to make/model, so it's looked up across the whole header
+    // row rather than from searchFrom onward. Matched by "contains 'plate'"
+    // rather than an exact string so header punctuation (e.g. the period
+    // in "Plate No.") doesn't break the lookup.
+    var plateCol = -1;
+    for (var pc = 0; pc < headerRow.length; pc++) {
+      if (headerRow[pc].indexOf('plate') !== -1) { plateCol = pc; break; }
+    }
+
     var rows = [];
     for (var i = 1; i < values.length; i++) {
       var bike = (values[i][bikeCol] || '').toString().trim();
@@ -457,7 +467,8 @@ function getBikeTaxCategories() {
         cc: ccCol > -1 ? (values[i][ccCol] || '').toString().trim() : '',
         key: keyCol > -1 ? (values[i][keyCol] || '').toString().trim() : '',
         deposit: depositCol > -1 ? (values[i][depositCol] || '').toString().trim() : '',
-        box: boxCol > -1 ? (values[i][boxCol] || '').toString().trim() : ''
+        box: boxCol > -1 ? (values[i][boxCol] || '').toString().trim() : '',
+        plate: plateCol > -1 ? (values[i][plateCol] || '').toString().trim() : ''
       });
     }
     return rows;

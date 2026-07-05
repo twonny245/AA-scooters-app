@@ -625,6 +625,11 @@ loadRows();
 let bikeNames = [];
 let bikeNamesPromise = null;
 
+// Bike Tax category rows (make/model/plate/etc.), fetched alongside the
+// bike list so plate numbers can be matched onto search results without a
+// separate round trip.
+let bikeTaxRows = [];
+
 function setBikeModelLoadStatus(msg) {
   const el = document.getElementById('bikeModelLoadStatus');
   if (!msg) { el.classList.remove('show'); return; }
@@ -644,7 +649,9 @@ function loadBikeNames() {
         .map(r => (r[bikeHeader] || '').toString().trim())
         .filter(Boolean)
         .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+      bikeTaxRows = data.categoryRows || [];
       setBikeModelLoadStatus(null);
+      renderResults();
       return bikeNames;
     })
     .catch(err => {
@@ -656,6 +663,15 @@ function loadBikeNames() {
 }
 
 loadBikeNames();
+
+// Finds the plate number for a customer record's bike text by fuzzy-
+// matching it against the Bike Tax sheet's bike names. Returns '' if the
+// plate data hasn't loaded yet or no match is found, rather than throwing.
+function plateForBike(bikeModelText) {
+  if (!bikeModelText || !bikeTaxRows.length) return '';
+  const match = bikeTaxRows.find(r => bikeNamesMatch(r.bike, bikeModelText));
+  return match ? (match.plate || '') : '';
+}
 
 function attachBikeModelAutocomplete() {
   const input = document.getElementById('bikeModel');
@@ -738,6 +754,27 @@ tabSearch.addEventListener('click', () => {
 });
 
 // Case-insensitive, multi-word "contains all tokens" matcher
+// Same fuzzy bike-name matching used on the Bikes Status page, so a plate
+// number can be looked up even when the customer record's bike text isn't
+// an exact match for the Bike Tax sheet's name (extra words, parentheses,
+// case differences, etc).
+function normalizeBikeName(s) {
+  return (s || '').toString()
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function bikeNamesMatch(a, b) {
+  const na = normalizeBikeName(a);
+  const nb = normalizeBikeName(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  return na.includes(nb) || nb.includes(na);
+}
+
 function tokenMatch(value, query) {
   if (!query) return true;
   const v = (value || '').toString().toLowerCase();
@@ -849,6 +886,7 @@ function renderResults() {
   box.innerHTML = matches.slice(0, 60).map(r => `
     <div class="result-card">
       <div class="rc-title">${highlight(r.name, vals.name)} — ${highlight(r.bikeModel, vals.bikeModel)}</div>
+      <div class="rc-row"><b>Plate no.:</b> ${plateForBike(r.bikeModel) || '—'}</div>
       <div class="rc-row"><b>Nationality:</b> ${highlight(r.nationality, vals.nationality) || '—'} &nbsp; <b>Passport:</b> ${highlight(r.passport, vals.passport) || '—'}</div>
       <div class="rc-row"><b>Contact:</b> ${highlight(r.contact, vals.contact) || '—'}</div>
       <div class="rc-row"><b>Rented:</b> ${formatDateDisplay(r.rentingDateFrom)}</div>
