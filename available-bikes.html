@@ -196,6 +196,16 @@
   .status.err{ color:var(--err); }
   .status.ok{ color:var(--ok); }
 
+  .reply-box{ margin-top:16px; padding-top:14px; border-top:1px solid var(--line); }
+  .reply-box textarea{
+    width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:9px;
+    font-size:14px; font-family:'Inter',sans-serif; background:#FBFAF7; color:var(--ink);
+    resize:vertical; margin-bottom:10px; line-height:1.5;
+  }
+  .reply-box textarea:focus{ outline:none; border-color:var(--petrol-light); background:#fff; }
+  button.copy-btn{ background:var(--petrol); }
+  .reply-box .status{ margin-top:8px; text-align:center; }
+
   .hidden{ display:none; }
 </style>
 </head>
@@ -284,6 +294,13 @@
       <div class="result-row"><span class="key">To</span><span class="val" id="rTo"></span></div>
       <div class="result-row"><span class="key">Duration</span><span class="val" id="rDays"></span></div>
       <div class="result-row"><span class="key">Per day avg</span><span class="val" id="rAvg"></span></div>
+
+      <div class="reply-box">
+        <label class="f" for="replyText">Reply message</label>
+        <textarea id="replyText" readonly rows="4"></textarea>
+        <button type="button" class="btn copy-btn" id="copyReplyBtn">Copy Reply</button>
+        <div class="status ok" id="copyStatus"></div>
+      </div>
     </div>
   </div>
 </main>
@@ -335,6 +352,7 @@ function findCategoryIndex(catText) {
 // ---------- state ----------
 let bikeNames = [];       // all bike names, alphabetically sorted
 let bikeCategory = {};    // bikeName -> raw Category text from the sheet
+let bikeDetails = {};     // bikeName -> { make, model, cc, key } from the Bike Tax tab
 let customerRows = null;
 let selectedBike = null;
 let selectedCatIndex = -1; // index into CATEGORY_DEFS / RATES columns, or -1 if unmatched
@@ -368,10 +386,17 @@ function loadData() {
       // Category lives on the "Bike Tax" tab, not "Parts and Oil change" —
       // matched onto our bike list the same fuzzy way rentals are matched.
       bikeCategory = {};
+      bikeDetails = {};
       const categoryRows = partsResult.categoryRows || [];
       bikeNames.forEach(name => {
         const match = categoryRows.find(cr => bikeNamesMatch(cr.bike, name));
         bikeCategory[name] = match ? (match.category || '').toString().trim() : '';
+        bikeDetails[name] = {
+          make: match ? (match.make || '').toString().trim() : '',
+          model: match ? (match.model || '').toString().trim() : '',
+          cc: match ? (match.cc || '').toString().trim() : '',
+          key: match ? (match.key || '').toString().trim() : ''
+        };
       });
 
       if (customerResult && customerResult.success) {
@@ -703,10 +728,50 @@ document.getElementById('calcBtn').addEventListener('click', () => {
   document.getElementById('rTo').textContent = fmtDate(to);
   document.getElementById('rDays').textContent = fmtDuration(from, to);
   document.getElementById('rAvg').textContent = fmt(avg) + '/day';
+  document.getElementById('replyText').value = buildReplyText(selectedBike, price, from, to);
+  document.getElementById('copyStatus').textContent = '';
 
   const res = document.getElementById('resultCard');
   res.classList.add('show');
   res.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+});
+
+function buildReplyText(name, price, from, to) {
+  const details = bikeDetails[name] || {};
+  const nameParts = [];
+  if (details.make) nameParts.push(details.make);
+  if (details.model) nameParts.push(details.model);
+  const displayName = nameParts.length ? nameParts.join(' ') : name;
+
+  const specParts = [];
+  if (details.cc) specParts.push(details.cc);
+  if (details.key) specParts.push(details.key);
+  const bikeDesc = specParts.length ? `${displayName}, ${specParts.join(' ')}` : displayName;
+
+  return `Thanks for getting in touch! Yes we have a ${bikeDesc} bike available. It will be ${fmt(price)} for ${fmtDuration(from, to)}.`;
+}
+
+document.getElementById('copyReplyBtn').addEventListener('click', () => {
+  const textarea = document.getElementById('replyText');
+  const statusEl = document.getElementById('copyStatus');
+  const text = textarea.value;
+
+  function showCopied() {
+    statusEl.textContent = 'Copied — ready to paste.';
+    setTimeout(() => { statusEl.textContent = ''; }, 2500);
+  }
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(showCopied).catch(() => {
+      textarea.select();
+      document.execCommand('copy');
+      showCopied();
+    });
+  } else {
+    textarea.select();
+    document.execCommand('copy');
+    showCopied();
+  }
 });
 
 loadData();

@@ -1,30 +1,13 @@
 /*
-  UPDATED Apps Script for the AA Scooters spreadsheet.
-  This REPLACES your current Code.gs entirely.
+  Apps Script for the AA Scooters spreadsheet.
 
-  What changed vs. the previous version:
-  - Fixed a bug where new customer rows saved "Renting from" / "Return date"
-    in yyyy-MM-dd format (e.g. 2026-07-04) instead of dd/MM/yyyy like the
-    rest of the sheet. Added formatIsoDateToDMY() and used it in doPost()
-    when appending the row.
-  - Added Bike Photos support, backing the new bikephotos.html page:
-      * uploadPhoto (doPost)  — saves a photo into that bike's Drive subfolder
-      * deletePhoto (doPost)  — trashes a photo by file ID
-      * bikePhotos  (doGet)   — lists a bike's photos
-    All photos live under one Drive folder (PHOTOS_ROOT_FOLDER_ID below),
-    with one auto-created subfolder per bike name.
-  - Everything else (doGet, getPartsData, getOperationStatusRows,
-    updateBikeRow) is unchanged from before.
-
-  ACTION NEEDED: set PHOTOS_ROOT_FOLDER_ID below to your real Drive folder
-  ID before deploying (see the comment next to it).
-
-  After pasting this in, click Deploy > Manage deployments > Edit (pencil) >
-  select "New version" > Deploy. The web app URL stays the same.
+  Includes: customer intake, bike parts/oil data, bike photos (Drive-backed),
+  and Bike Tax category lookup (used by Available Bikes to price by category).
 */
 
 var PARTS_SHEET_NAME = 'Parts and Oil change';
 var OPERATION_SHEET_NAME = 'Operation';
+var BIKE_TAX_SHEET_NAME = 'Bike Tax';
 
 // ID of the Drive folder that holds one subfolder per bike, full of that
 // bike's photos. Get this from the folder's URL:
@@ -107,7 +90,7 @@ function formatIsoDateToDMY(isoStr) {
   return d + '/' + mo + '/' + y;
 }
 
-// ---- Update one row in the Parts and Oil change tab (unchanged) ----
+// ---- Update one row in the Parts and Oil change tab ----
 function updateBikeRow(data) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -279,7 +262,7 @@ function columnLetter(col) {
   return letter;
 }
 
-// ---- Used by the "Search" screen on the Customer Record page (unchanged) ----
+// ---- Used by the "Search" screen on the Customer Record page ----
 
 var HEADER_ROWS = 1;
 
@@ -335,8 +318,9 @@ function doGet(e) {
 }
 
 // ---- Serve the Parts and Oil change tab, PLUS the Operation tab's Bike +
-// Status columns (operationRows), so pages can use whichever Status is
-// actually correct without needing a separate round trip. ----
+// Status columns (operationRows), PLUS the Bike Tax tab's Bike model +
+// category columns (categoryRows), so pages can price/status bikes without
+// needing separate round trips. ----
 function getPartsData() {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -370,13 +354,15 @@ function getPartsData() {
     }).filter(function(r) { return (r[headers[0]] || '').toString().trim() !== ''; });
 
     var operationRows = getOperationStatusRows();
+    var categoryRows = getBikeTaxCategories();
 
     return ContentService
       .createTextOutput(JSON.stringify({
         success: true,
         headers: headers,
         rows: rows,
-        operationRows: operationRows
+        operationRows: operationRows,
+        categoryRows: categoryRows
       }))
       .setMimeType(ContentService.MimeType.JSON);
 
@@ -418,5 +404,144 @@ function getOperationStatusRows() {
 
   } catch (err) {
     return [];
+  }
+}
+
+// ---- Read Bike model + category + make/model/cc/key from the Bike Tax tab.
+// Looks columns up by header text so it keeps working if columns move.
+// make/model/cc/key are optional — any that are blank or missing just come
+// back as empty strings, since not every bike has them filled in yet.
+// Returns [] (never throws) so a problem here never breaks the rest of the
+// Available Bikes page. ----
+function getBikeTaxCategories() {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName(BIKE_TAX_SHEET_NAME);
+    if (!sheet) return [];
+
+    var values = sheet.getDataRange().getValues();
+    if (!values.length) return [];
+
+    var headerRow = values[0].map(function(h) {
+      return (h || '').toString().trim().toLowerCase();
+    });
+    var bikeCol = headerRow.indexOf('bike model');
+    var catCol = headerRow.indexOf('category');
+    if (bikeCol === -1 || catCol === -1) return [];
+
+    var makeCol = headerRow.indexOf('make');
+    var modelCol = headerRow.indexOf('model');
+    var ccCol = headerRow.indexOf('cc');
+    var keyCol = headerRow.indexOf('key');
+
+    var rows = [];
+    for (var i = 1; i < values.length; i++) {
+      var bike = (values[i][bikeCol] || '').toString().trim();
+      if (!bike) continue;
+      var cat = (values[i][catCol] || '').toString().trim();
+      rows.push({
+        bike: bike,
+        category: cat,
+        make: makeCol > -1 ? (values[i][makeCol] || '').toString().trim() : '',
+        model: modelCol > -1 ? (values[i][modelCol] || '').toString().trim() : '',
+        cc: ccCol > -1 ? (values[i][ccCol] || '').toString().trim() : '',
+        key: keyCol > -1 ? (values[i][keyCol] || '').toString().trim() : ''
+      });
+    }
+    return rows;
+
+  } catch (err) {
+    return [];
+  }
+}
+
+// =====================================================================
+// ONE-TIME MIGRATION: import photos from the "Cosmetic Damage" Google Doc
+// into each bike's Drive photo folder. Each Doc tab (e.g. "RAX Red") is
+// matched to a real bike name from the Parts and Oil change sheet, and
+// every image embedded in that tab is copied into that bike's folder.
+//
+// HOW TO RUN:
+//   1. In the Apps Script editor, pick "importCosmeticDamagePhotos" from
+//      the function dropdown at the top (next to Run/Debug).
+//   2. Click Run. First time, you'll get a permissions prompt for Google
+//      Docs access — Advanced > Go to (project) (unsafe) > Allow.
+//   3. When it finishes, go to View > Logs (or Executions) to see a
+//      summary of what was imported per tab, and which tabs (if any)
+//      couldn't be confidently matched to a bike name.
+//   4. This only needs to be run once. Re-running it will import the
+//      same photos again as duplicates, so don't run it twice unless
+//      you've deleted the previous import first.
+//
+// Safe to delete this whole section afterward if you don't need it again.
+// =====================================================================
+
+var COSMETIC_DAMAGE_DOC_ID = '10YMe4YqkJHT94STf40J9fQqu2L01j2Qg0Skr3gLRcPY';
+
+function normalizeBikeNameForImport(s) {
+  return (s || '').toString()
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function bikeNamesMatchForImport(a, b) {
+  var na = normalizeBikeNameForImport(a);
+  var nb = normalizeBikeNameForImport(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  return na.indexOf(nb) !== -1 || nb.indexOf(na) !== -1;
+}
+
+function getAllBikeNamesForImport() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(PARTS_SHEET_NAME);
+  if (!sheet) throw new Error('Sheet named "' + PARTS_SHEET_NAME + '" not found.');
+  var values = sheet.getDataRange().getValues();
+  var names = [];
+  for (var i = 1; i < values.length; i++) {
+    var name = (values[i][0] || '').toString().trim();
+    if (name) names.push(name);
+  }
+  return names;
+}
+
+// Picks the best bike-name match for a Doc tab title. If several bike
+// names loosely match, prefers whichever is closest in length to the tab
+// title (i.e. the tightest match), rather than guessing at random.
+function findBestBikeMatchForImport(tabTitle, bikeNames) {
+  var candidates = bikeNames.filter(function(n) {
+    return bikeNamesMatchForImport(n, tabTitle);
+  });
+  if (!candidates.length) return null;
+  if (candidates.length === 1) return candidates[0];
+
+  var targetLen = normalizeBikeNameForImport(tabTitle).length;
+  candidates.sort(function(a, b) {
+    var da = Math.abs(normalizeBikeNameForImport(a).length - targetLen);
+    var db = Math.abs(normalizeBikeNameForImport(b).length - targetLen);
+    return da - db;
+  });
+  return candidates[0];
+}
+
+// Recursively walks a Doc element tree (paragraphs, tables, table cells,
+// etc.) collecting every inline image found anywhere inside it.
+function collectInlineImagesForImport(element, out) {
+  var type = element.getType();
+  if (type === DocumentApp.ElementType.INLINE_IMAGE) {
+    out.push(element.asInlineImage());
+    return;
+  }
+  var numChildren;
+  try {
+    numChildren = element.getNumChildren();
+  } catch (e) {
+    return; // Not a container element (e.g. plain text run) — nothing to recurse into.
+  }
+  for (var i = 0; i < numChildren; i++) {
+    collectInlineImagesForImport(element.getChild(i), out);
   }
 }
