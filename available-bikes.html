@@ -343,17 +343,23 @@ function loadData() {
       if (!partsResult.success) throw new Error(partsResult.error || 'Could not load bikes');
 
       const bikeHeader = partsResult.headers[0];
-      const categoryHeader = partsResult.headers.find(h => h.toLowerCase().trim() === 'category');
 
       bikeNames = [];
-      bikeCategory = {};
       partsResult.rows.forEach(r => {
         const name = (r[bikeHeader] || '').toString().trim();
         if (!name) return;
         bikeNames.push(name);
-        bikeCategory[name] = categoryHeader ? (r[categoryHeader] || '').toString().trim() : '';
       });
       bikeNames.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+
+      // Category lives on the "Bike Tax" tab, not "Parts and Oil change" —
+      // matched onto our bike list the same fuzzy way rentals are matched.
+      bikeCategory = {};
+      const categoryRows = partsResult.categoryRows || [];
+      bikeNames.forEach(name => {
+        const match = categoryRows.find(cr => bikeNamesMatch(cr.bike, name));
+        bikeCategory[name] = match ? (match.category || '').toString().trim() : '';
+      });
 
       if (customerResult && customerResult.success) {
         customerRows = customerResult.rows;
