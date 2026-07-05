@@ -426,6 +426,7 @@ function getBikeTaxCategories() {
       return (h || '').toString().trim().toLowerCase();
     });
     var bikeCol = headerRow.indexOf('bike model');
+    if (bikeCol === -1) bikeCol = headerRow.indexOf('bike');
     var catCol = headerRow.indexOf('category');
     if (bikeCol === -1 || catCol === -1) return [];
 
