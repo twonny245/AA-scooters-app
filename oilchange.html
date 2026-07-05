@@ -60,6 +60,29 @@
 
   main{ max-width:520px; margin:0 auto; padding:16px 16px 60px; }
 
+  .search-wrap{ position:relative; margin-bottom:12px; }
+  .search-wrap input{
+    width:100%; padding:12px 14px; border:1px solid var(--line); border-radius:10px;
+    font-size:15px; font-family:'Inter',sans-serif; background:#fff; color:var(--ink);
+  }
+  .search-wrap input:focus{ outline:none; border-color:var(--petrol-light); }
+  .ac-list{
+    position:absolute; left:0; right:0; top:100%;
+    background:#fff; border:1px solid var(--line); border-top:none;
+    border-radius:0 0 9px 9px;
+    max-height:220px; overflow-y:auto;
+    z-index:20; display:none;
+    box-shadow:0 8px 18px rgba(15,61,62,.1);
+  }
+  .ac-list.show{ display:block; }
+  .ac-item{
+    padding:10px 12px; font-size:14px; cursor:pointer;
+    border-bottom:1px solid #F0EBE0;
+  }
+  .ac-item:last-child{ border-bottom:none; }
+  .ac-item:hover, .ac-item.hi{ background:#F5EFE6; }
+  .ac-item mark{ background:#FFE3D2; color:var(--ink); border-radius:2px; }
+
   .load-status{
     font-size:12px; color:#B36A2E; background:#FFF3E6; border:1px solid #F3D9B8;
     border-radius:7px; padding:7px 10px; margin-bottom:12px; display:none;
@@ -133,6 +156,11 @@
 </div>
 
 <main>
+  <div class="search-wrap field">
+    <input type="text" id="bikeSearch" placeholder="Search bikes… e.g. GT, Aerox" autocomplete="off">
+    <div class="ac-list" id="bikeAcList"></div>
+  </div>
+
   <div class="load-status" id="loadStatus">Loading bikes…</div>
   <div class="load-status" id="rentalStatus"></div>
   <div class="list-note" id="listNote"></div>
@@ -146,6 +174,7 @@ const scriptUrl = 'https://script.google.com/macros/s/AKfycbxWV72e8u9NwBZS43RdOh
 let partsData = null;
 let customerRows = null;
 let activeTab = 'km';
+let searchBikeNames = [];
 
 function setLoadStatus(msg) {
   const el = document.getElementById('loadStatus');
@@ -170,6 +199,11 @@ function loadParts() {
     .then(([partsResult, customerResult]) => {
       if (!partsResult.success) throw new Error(partsResult.error || 'Could not load data');
       partsData = partsResult;
+      const bikeHeader = partsData.headers[0];
+      searchBikeNames = partsData.rows
+        .map(r => (r[bikeHeader] || '').toString().trim())
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
       if (customerResult && customerResult.success) {
         customerRows = customerResult.rows;
         setRentalStatus(null);
@@ -254,6 +288,26 @@ function findCurrentRenter(bikeName) {
   return candidates[0].r;
 }
 
+// Case-insensitive, multi-word "contains all tokens" matcher — same rule
+// used on the Bikes Status search box.
+function tokenMatch(value, query) {
+  if (!query) return true;
+  const v = (value || '').toString().toLowerCase();
+  const tokens = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  return tokens.every(t => v.includes(t));
+}
+
+function highlight(value, query) {
+  let out = String(value || '');
+  const tokens = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  tokens.forEach(t => {
+    if (!t) return;
+    const re = new RegExp('(' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig');
+    out = out.replace(re, '<mark>$1</mark>');
+  });
+  return out;
+}
+
 function parseNum(v) {
   if (v === undefined || v === null) return NaN;
   const cleaned = v.toString().replace(/[^0-9.\-]/g, '');
@@ -269,13 +323,33 @@ function riskClass(status) {
   return '';
 }
 
+// The Operation tab's Status cells have a leading emoji circle (🟢/🟡/🟠)
+// in front of the text — strip anything that isn't a letter or space so
+// we're left with a clean "OK" / "MONITOR" / "HIGH RISK".
+function cleanStatus(status) {
+  return (status || '').toString().replace(/[^A-Za-z ]/g, '').trim().toUpperCase();
+}
+
+// Looks up this bike's Status from the Operation tab (the one kept
+// accurate), using the same fuzzy name matching used for rentals. Returns
+// null if the Operation tab has no matching row, so callers can fall back
+// to the Parts and Oil change tab's own Status column.
+function findOperationStatus(bikeName) {
+  if (!partsData || !partsData.operationRows || !partsData.operationRows.length) return null;
+  if (!normalizeBikeName(bikeName)) return null;
+
+  const match = partsData.operationRows.find(r => bikeNamesMatch(r.bike, bikeName));
+  return match ? cleanStatus(match.status) : null;
+}
+
 function findHeader(headers, name) {
   return headers.find(h => h.trim().toLowerCase() === name);
 }
 
 function cardHtml(row, headers, metricLabel, metricValue) {
   const bikeHeader = headers[0];
-  const status = row[findHeader(headers, 'status')] || '';
+  const operationStatus = findOperationStatus(row[bikeHeader]);
+  const status = operationStatus !== null ? operationStatus : (row[findHeader(headers, 'status')] || '');
   const rClass = riskClass(status);
   const oilChange = row[findHeader(headers, 'oil change')] || '—';
   const nextOil = row[findHeader(headers, 'next oil change')] || '—';
@@ -305,9 +379,13 @@ function cardHtml(row, headers, metricLabel, metricValue) {
 function render() {
   if (!partsData) return;
   const headers = partsData.headers;
+  const bikeHeader = headers[0];
   const listBox = document.getElementById('listBox');
   const noDataSection = document.getElementById('noDataSection');
   const listNote = document.getElementById('listNote');
+  const query = document.getElementById('bikeSearch').value.trim();
+
+  const filteredRows = partsData.rows.filter(row => tokenMatch(row[bikeHeader], query));
 
   if (activeTab === 'km') {
     const nextH = findHeader(headers, 'next oil change');
@@ -316,7 +394,7 @@ function render() {
     const withData = [];
     const withoutData = [];
 
-    partsData.rows.forEach(row => {
+    filteredRows.forEach(row => {
       const next = parseNum(row[nextH]);
       const last = parseNum(row[lastH]);
       if (isNaN(next) || isNaN(last)) {
@@ -344,7 +422,7 @@ function render() {
     const withData = [];
     const withoutData = [];
 
-    partsData.rows.forEach(row => {
+    filteredRows.forEach(row => {
       const days = parseNum(row[daysH]);
       if (isNaN(days)) {
         withoutData.push(row);
@@ -367,7 +445,7 @@ function render() {
   }
 
   if (!listBox.innerHTML) {
-    listBox.innerHTML = '<div class="empty-hint">No bikes to show.</div>';
+    listBox.innerHTML = '<div class="empty-hint">No matching bikes.</div>';
   }
 }
 
@@ -382,6 +460,77 @@ document.getElementById('tabDate').addEventListener('click', () => {
   document.getElementById('tabDate').classList.add('active');
   document.getElementById('tabKm').classList.remove('active');
   render();
+});
+
+/* ---------------- Search box with live narrowing + autocomplete ---------------- */
+
+const searchInput = document.getElementById('bikeSearch');
+const acList = document.getElementById('bikeAcList');
+let hiIndex = -1;
+
+function closeAc() {
+  acList.classList.remove('show');
+  acList.innerHTML = '';
+  hiIndex = -1;
+}
+
+function openAc(query) {
+  const options = searchBikeNames.filter(n => tokenMatch(n, query)).slice(0, 8);
+  if (!query || options.length === 0) { closeAc(); return; }
+  acList.innerHTML = options.map((v, i) =>
+    `<div class="ac-item" data-index="${i}">${highlight(v, query)}</div>`
+  ).join('');
+  acList.classList.add('show');
+  hiIndex = -1;
+  Array.from(acList.children).forEach((el, i) => {
+    el.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      searchInput.value = options[i];
+      closeAc();
+      render();
+    });
+  });
+  acList._options = options;
+}
+
+searchInput.addEventListener('input', () => {
+  openAc(searchInput.value.trim());
+  render();
+});
+
+searchInput.addEventListener('focus', () => {
+  openAc(searchInput.value.trim());
+});
+
+searchInput.addEventListener('keydown', (e) => {
+  const items = Array.from(acList.children);
+  if (e.key === 'Enter') {
+    // Enter just confirms the current text as the filter (list is already
+    // narrowed live) and closes the suggestion dropdown.
+    e.preventDefault();
+    if (hiIndex >= 0 && acList._options) {
+      searchInput.value = acList._options[hiIndex];
+    }
+    closeAc();
+    render();
+    return;
+  }
+  if (!items.length) return;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    hiIndex = Math.min(hiIndex + 1, items.length - 1);
+    items.forEach((el, i) => el.classList.toggle('hi', i === hiIndex));
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    hiIndex = Math.max(hiIndex - 1, 0);
+    items.forEach((el, i) => el.classList.toggle('hi', i === hiIndex));
+  } else if (e.key === 'Escape') {
+    closeAc();
+  }
+});
+
+document.addEventListener('click', (e) => {
+  if (!searchInput.contains(e.target) && !acList.contains(e.target)) closeAc();
 });
 
 loadParts();
