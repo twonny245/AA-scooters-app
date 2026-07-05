@@ -431,14 +431,18 @@ function getBikeTaxCategories() {
     if (bikeCol === -1 || catCol === -1) return [];
 
     var makeCol = headerRow.indexOf('make');
-    // Look for model/cc/key starting from the make column onward, so these
-    // always resolve to the group of columns sitting next to "make" —
+    // Look for model/cc/key/deposit starting from the make column onward, so
+    // these always resolve to the group of columns sitting next to "make" —
     // not some unrelated column elsewhere in the sheet that happens to
-    // also be named "model".
+    // share a name.
     var searchFrom = makeCol > -1 ? makeCol : 0;
     var modelCol = headerRow.indexOf('model', searchFrom);
     var ccCol = headerRow.indexOf('cc', searchFrom);
     var keyCol = headerRow.indexOf('key', searchFrom);
+    var depositCol = headerRow.indexOf('deposit', searchFrom);
+    if (depositCol === -1) depositCol = headerRow.indexOf('deposit');
+    var boxCol = headerRow.indexOf('box', searchFrom);
+    if (boxCol === -1) boxCol = headerRow.indexOf('box');
 
     var rows = [];
     for (var i = 1; i < values.length; i++) {
@@ -451,7 +455,9 @@ function getBikeTaxCategories() {
         make: makeCol > -1 ? (values[i][makeCol] || '').toString().trim() : '',
         model: modelCol > -1 ? (values[i][modelCol] || '').toString().trim() : '',
         cc: ccCol > -1 ? (values[i][ccCol] || '').toString().trim() : '',
-        key: keyCol > -1 ? (values[i][keyCol] || '').toString().trim() : ''
+        key: keyCol > -1 ? (values[i][keyCol] || '').toString().trim() : '',
+        deposit: depositCol > -1 ? (values[i][depositCol] || '').toString().trim() : '',
+        box: boxCol > -1 ? (values[i][boxCol] || '').toString().trim() : ''
       });
     }
     return rows;

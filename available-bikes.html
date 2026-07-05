@@ -395,7 +395,9 @@ function loadData() {
           make: match ? (match.make || '').toString().trim() : '',
           model: match ? (match.model || '').toString().trim() : '',
           cc: match ? (match.cc || '').toString().trim() : '',
-          key: match ? (match.key || '').toString().trim() : ''
+          key: match ? (match.key || '').toString().trim() : '',
+          deposit: match ? (match.deposit || '').toString().trim() : '',
+          box: match ? (match.box || '').toString().trim() : ''
         };
       });
 
@@ -736,6 +738,30 @@ document.getElementById('calcBtn').addEventListener('click', () => {
   res.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 });
 
+function formatDepositText(raw) {
+  if (!raw) return '';
+  const num = parseFloat(raw.toString().replace(/[^0-9.]/g, ''));
+  if (!isNaN(num) && num > 0) return fmt(Math.round(num));
+  return raw;
+}
+
+// Duration phrasing just for the copyable reply text: exactly 30 days reads
+// as "one month"; any other length (including 31+) is just the plain day
+// count, rather than the month/day breakdown used in the price card above.
+// Number of days in the calendar month that the given date (yyyy-MM-dd)
+// falls in — 28/29/30/31, whichever applies.
+function daysInMonthOf(dateStr) {
+  const d = new Date(dateStr);
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+}
+
+function replyDurationText(from, to) {
+  const days = daysBetween(from, to);
+  const monthLength = daysInMonthOf(from);
+  if (days === monthLength) return 'one month';
+  return days + (days === 1 ? ' day' : ' days');
+}
+
 function buildReplyText(name, price, from, to) {
   const details = bikeDetails[name] || {};
   const nameParts = [];
@@ -748,7 +774,18 @@ function buildReplyText(name, price, from, to) {
   if (details.key) specParts.push(details.key);
   const bikeDesc = specParts.length ? `${displayName}, ${specParts.join(' ')}` : displayName;
 
-  return `Thanks for getting in touch! Yes we have a ${bikeDesc} bike available. It will be ${fmt(price)} for ${fmtDuration(from, to)}.`;
+  let message = `Thanks for getting in touch! Yes we have a ${bikeDesc} bike available. It will be ${fmt(price)} for ${replyDurationText(from, to)}.`;
+
+  const depositText = formatDepositText(details.deposit);
+  if (depositText) {
+    message += ` There is a ${depositText} refundable deposit.`;
+  }
+
+  if ((details.box || '').toString().trim().toLowerCase() === 'yes') {
+    message += ` This model also comes with a handy top box for extra storage.`;
+  }
+
+  return message;
 }
 
 document.getElementById('copyReplyBtn').addEventListener('click', () => {
