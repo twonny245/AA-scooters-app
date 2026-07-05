@@ -118,12 +118,29 @@
   .upload-status.err{ background:#FCEBEB; color:var(--err); border:1px solid #F3C6C6; }
   .upload-status.pending{ background:#FFF3E6; color:#B36A2E; border:1px solid #F3D9B8; }
 
+  .progress-wrap{
+    margin-top:10px; display:none;
+  }
+  .progress-wrap.show{ display:block; }
+  .progress-label{
+    display:flex; justify-content:space-between; font-size:12px; color:var(--muted);
+    margin-bottom:5px;
+  }
+  .progress-track{
+    height:8px; border-radius:5px; background:#EFE8DA; overflow:hidden;
+    border:1px solid var(--line);
+  }
+  .progress-fill{
+    height:100%; background:var(--cone); border-radius:5px;
+    width:0%; transition:width .2s ease;
+  }
+
   .gallery{
     display:grid; grid-template-columns:1fr 1fr; gap:10px;
   }
   .photo-card{
     position:relative; background:var(--card); border:1px solid var(--line);
-    border-radius:10px; overflow:hidden; aspect-ratio:1/1;
+    border-radius:10px; overflow:hidden; aspect-ratio:1/1; cursor:pointer;
   }
   .photo-card img{
     width:100%; height:100%; object-fit:cover; display:block;
@@ -133,8 +150,10 @@
     position:absolute; top:6px; right:6px; width:28px; height:28px;
     border-radius:50%; border:none; background:rgba(26,36,33,.65); color:#fff;
     font-size:14px; line-height:28px; text-align:center; cursor:pointer; padding:0;
+    z-index:2;
   }
   .photo-card .del-btn:active{ background:rgba(197,48,48,.9); }
+  .photo-card.uploading{ cursor:default; }
   .photo-card.uploading::after{
     content:"Uploading…";
     position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
@@ -144,6 +163,21 @@
   .gallery-empty{
     grid-column:1 / -1; font-size:13px; color:#8A948F; padding:24px 2px; text-align:center;
   }
+
+  .lightbox{
+    position:fixed; inset:0; z-index:999; background:rgba(15,20,19,.94);
+    display:none; align-items:center; justify-content:center;
+  }
+  .lightbox.show{ display:flex; }
+  .lightbox img{
+    max-width:100%; max-height:100%; object-fit:contain; display:block;
+  }
+  .lightbox-close{
+    position:absolute; top:16px; right:16px; width:40px; height:40px;
+    border-radius:50%; border:none; background:rgba(255,255,255,.15); color:#fff;
+    font-size:20px; line-height:40px; text-align:center; cursor:pointer; padding:0;
+  }
+  .lightbox-close:active{ background:rgba(255,255,255,.3); }
 
   .hidden{ display:none; }
 </style>
@@ -193,12 +227,26 @@
       </label>
       <div class="upload-hint">JPG or PNG, multiple at once is fine.</div>
       <div class="upload-status" id="uploadStatus"></div>
+      <div class="progress-wrap" id="progressWrap">
+        <div class="progress-label">
+          <span id="progressLabel">Uploading…</span>
+          <span id="progressCount"></span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+      </div>
     </div>
 
     <div class="load-status" id="galleryLoadStatus">Loading photos…</div>
     <div class="gallery" id="gallery"></div>
   </div>
 </main>
+
+<div class="lightbox" id="lightbox">
+  <button type="button" class="lightbox-close" id="lightboxClose">✕</button>
+  <img id="lightboxImg" src="" alt="Bike photo, full size">
+</div>
 
 <script>
 const scriptUrl = 'https://script.google.com/macros/s/AKfycbxWV72e8u9NwBZS43RdOhNZsNCBa-OFZV5aEKtMgsb0MwExfl9XNt7nTvPrK--hEXTFhQ/exec';
@@ -214,6 +262,29 @@ const selectedBikeName = document.getElementById('selectedBikeName');
 const gallery = document.getElementById('gallery');
 const photoInput = document.getElementById('photoInput');
 const uploadStatus = document.getElementById('uploadStatus');
+const progressWrap = document.getElementById('progressWrap');
+const progressFill = document.getElementById('progressFill');
+const progressLabel = document.getElementById('progressLabel');
+const progressCount = document.getElementById('progressCount');
+const lightbox = document.getElementById('lightbox');
+const lightboxImg = document.getElementById('lightboxImg');
+const lightboxClose = document.getElementById('lightboxClose');
+
+function openLightbox(url) {
+  lightboxImg.src = url;
+  lightbox.classList.add('show');
+}
+function closeLightbox() {
+  lightbox.classList.remove('show');
+  lightboxImg.src = '';
+}
+lightboxClose.addEventListener('click', closeLightbox);
+lightbox.addEventListener('click', (e) => {
+  if (e.target === lightbox) closeLightbox();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeLightbox();
+});
 
 function setLoadStatus(id, msg) {
   const el = document.getElementById(id);
@@ -340,8 +411,23 @@ function renderGallery(photos) {
 }
 
 function attachDeleteHandlers() {
+  gallery.querySelectorAll('.photo-card').forEach(card => {
+    if (card.classList.contains('uploading')) return;
+    const img = card.querySelector('img');
+    if (img && !card._lightboxAttached) {
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('.del-btn')) return;
+        openLightbox(img.src);
+      });
+      card._lightboxAttached = true;
+    }
+  });
+
   gallery.querySelectorAll('.del-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
+    if (btn._deleteAttached) return;
+    btn._deleteAttached = true;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
       const id = btn.getAttribute('data-id');
       if (!confirm('Delete this photo? This cannot be undone from here.')) return;
       const card = btn.closest('.photo-card');
@@ -404,10 +490,16 @@ photoInput.addEventListener('change', async () => {
   uploadStatus.className = 'upload-status pending show';
   uploadStatus.textContent = 'Uploading ' + files.length + (files.length === 1 ? ' photo…' : ' photos…');
 
+  progressWrap.classList.add('show');
+  progressLabel.textContent = 'Uploading…';
+  progressFill.style.width = '0%';
+  progressCount.textContent = '0 / ' + files.length;
+
   let successCount = 0;
   let firstError = null;
 
-  for (const file of files) {
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
     const placeholder = document.createElement('div');
     placeholder.className = 'photo-card uploading';
     gallery.prepend(placeholder);
@@ -421,10 +513,15 @@ photoInput.addEventListener('change', async () => {
       placeholder.remove();
       firstError = err.message;
     }
+
+    const done = i + 1;
+    progressCount.textContent = done + ' / ' + files.length;
+    progressFill.style.width = Math.round((done / files.length) * 100) + '%';
   }
 
   attachDeleteHandlers();
   photoInput.value = '';
+  progressWrap.classList.remove('show');
 
   if (firstError && successCount === 0) {
     uploadStatus.className = 'upload-status err show';
