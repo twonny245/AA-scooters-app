@@ -430,9 +430,14 @@ function getBikeTaxCategories() {
     if (bikeCol === -1 || catCol === -1) return [];
 
     var makeCol = headerRow.indexOf('make');
-    var modelCol = headerRow.indexOf('model');
-    var ccCol = headerRow.indexOf('cc');
-    var keyCol = headerRow.indexOf('key');
+    // Look for model/cc/key starting from the make column onward, so these
+    // always resolve to the group of columns sitting next to "make" —
+    // not some unrelated column elsewhere in the sheet that happens to
+    // also be named "model".
+    var searchFrom = makeCol > -1 ? makeCol : 0;
+    var modelCol = headerRow.indexOf('model', searchFrom);
+    var ccCol = headerRow.indexOf('cc', searchFrom);
+    var keyCol = headerRow.indexOf('key', searchFrom);
 
     var rows = [];
     for (var i = 1; i < values.length; i++) {
