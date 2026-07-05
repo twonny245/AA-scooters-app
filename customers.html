@@ -329,7 +329,10 @@
     <div class="card">
       <h2>Rental</h2>
       <label for="bikeModel">Bike model</label>
-      <input id="bikeModel" required placeholder="GT red 2">
+      <div class="field">
+        <input id="bikeModel" required placeholder="GT red 2" autocomplete="off">
+        <div class="ac-list" data-for="bikeModel"></div>
+      </div>
 
       <div class="row2">
         <div>
@@ -609,6 +612,94 @@ function loadRows() {
 // Start fetching immediately on page load, so data is likely ready
 // by the time the person switches to the Search tab.
 loadRows();
+
+// ---- Canonical bike list (from the Parts & Oil sheet) for the main
+// "Bike model" field, so staff pick from the real list instead of
+// free-typing a name that might not match (typos, missing digits, etc). ----
+let bikeNames = [];
+let bikeNamesPromise = null;
+
+function loadBikeNames() {
+  if (bikeNamesPromise) return bikeNamesPromise;
+  bikeNamesPromise = fetch(scriptUrl + '?action=parts')
+    .then(res => res.json())
+    .then(data => {
+      if (!data.success) throw new Error(data.error || 'Could not load bike list');
+      const bikeHeader = data.headers[0];
+      bikeNames = data.rows
+        .map(r => (r[bikeHeader] || '').toString().trim())
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+      return bikeNames;
+    })
+    .catch(err => {
+      console.error('Could not load bike list:', err.message);
+      bikeNamesPromise = null;
+      return [];
+    });
+  return bikeNamesPromise;
+}
+
+loadBikeNames();
+
+function attachBikeModelAutocomplete() {
+  const input = document.getElementById('bikeModel');
+  const list = document.querySelector('.ac-list[data-for="bikeModel"]');
+  let hiIndex = -1;
+
+  function close() {
+    list.classList.remove('show');
+    list.innerHTML = '';
+    hiIndex = -1;
+  }
+
+  function open(query) {
+    const options = bikeNames.filter(v => tokenMatch(v, query)).slice(0, 8);
+    if (options.length === 0) { close(); return; }
+    list.innerHTML = options.map((v, i) =>
+      `<div class="ac-item" data-index="${i}">${highlight(v, query)}</div>`
+    ).join('');
+    list.classList.add('show');
+    hiIndex = -1;
+    Array.from(list.children).forEach((el, i) => {
+      el.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        input.value = options[i];
+        close();
+      });
+    });
+    list._options = options;
+  }
+
+  input.addEventListener('input', () => open(input.value.trim()));
+  input.addEventListener('focus', () => open(input.value.trim()));
+
+  input.addEventListener('keydown', (e) => {
+    const items = Array.from(list.children);
+    if (!items.length) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      hiIndex = Math.min(hiIndex + 1, items.length - 1);
+      items.forEach((el, i) => el.classList.toggle('hi', i === hiIndex));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      hiIndex = Math.max(hiIndex - 1, 0);
+      items.forEach((el, i) => el.classList.toggle('hi', i === hiIndex));
+    } else if (e.key === 'Enter' && hiIndex >= 0) {
+      e.preventDefault();
+      input.value = list._options[hiIndex];
+      close();
+    } else if (e.key === 'Escape') {
+      close();
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!input.contains(e.target) && !list.contains(e.target)) close();
+  });
+}
+
+attachBikeModelAutocomplete();
 
 tabAdd.addEventListener('click', () => {
   tabAdd.classList.add('active');
