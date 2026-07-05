@@ -83,6 +83,19 @@
   }
 
   .bike-list{ display:flex; flex-direction:column; gap:8px; }
+
+  .cat-section-head{
+    font-family:'Barlow Condensed',sans-serif; font-size:12.5px; font-weight:700;
+    letter-spacing:.06em; text-transform:uppercase; color:var(--petrol);
+    margin:18px 2px 2px; padding-bottom:6px; border-bottom:1px solid var(--line);
+    display:flex; align-items:baseline; justify-content:space-between; gap:8px;
+  }
+  .cat-section-head:first-child{ margin-top:0; }
+  .cat-section-head .cat-count{
+    font-weight:500; color:#7A8A86; letter-spacing:.02em; text-transform:none; font-size:11.5px;
+  }
+  .cat-section-head.no-cat{ color:#B36A2E; }
+
   .bike-pick{
     display:flex; align-items:center; justify-content:space-between; gap:10px;
     background:#FBFAF7; border:1px solid var(--line); border-left:5px solid var(--ok);
@@ -454,8 +467,7 @@ function renderList() {
 
   const available = bikeNames
     .filter(name => !findCurrentRenter(name))
-    .filter(name => tokenMatch(name, query))
-    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    .filter(name => tokenMatch(name, query));
 
   countEl.textContent = available.length + (available.length === 1 ? ' bike available' : ' bikes available');
 
@@ -464,18 +476,56 @@ function renderList() {
     return;
   }
 
-  listBox.innerHTML = available.map(name => {
-    const cat = bikeCategory[name];
-    const catLabel = cat ? cat : 'No category set';
-    return `
-      <button type="button" class="bike-pick" data-name="${name.replace(/"/g,'&quot;')}">
-        <span>
-          <span class="bp-name">${highlight(name, query)}</span>
-          <span class="bp-cat">${highlight(catLabel, query)}</span>
-        </span>
-        <span class="bp-arrow">›</span>
-      </button>
-    `;
+  // Group bikes: one group per known CATEGORY_DEFS entry (in rate-table
+  // order), then any categories from the sheet that don't match a known
+  // rate (grouped by their raw text, alphabetically), then bikes with no
+  // category at all, last.
+  const knownGroups = CATEGORY_DEFS.map(def => ({ key: def.key, label: def.label, bikes: [] }));
+  const otherGroups = {}; // raw category text (lowercased) -> { label, bikes }
+  const noCatGroup = { label: 'No category set', bikes: [] };
+
+  available.forEach(name => {
+    const catText = bikeCategory[name];
+    const idx = findCategoryIndex(catText);
+    if (idx >= 0) {
+      knownGroups[idx].bikes.push(name);
+    } else if (catText) {
+      const key = normalizeCategory(catText);
+      if (!otherGroups[key]) otherGroups[key] = { label: catText, bikes: [] };
+      otherGroups[key].bikes.push(name);
+    } else {
+      noCatGroup.bikes.push(name);
+    }
+  });
+
+  const sections = []
+    .concat(knownGroups.filter(g => g.bikes.length))
+    .concat(
+      Object.values(otherGroups).sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
+    )
+    .concat(noCatGroup.bikes.length ? [noCatGroup] : []);
+
+  sections.forEach(sec => {
+    sec.bikes.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  });
+
+  listBox.innerHTML = sections.map(sec => {
+    const headClass = sec === noCatGroup ? 'cat-section-head no-cat' : 'cat-section-head';
+    const head = `<div class="${headClass}"><span>${sec.label}</span><span class="cat-count">${sec.bikes.length}</span></div>`;
+    const items = sec.bikes.map(name => {
+      const cat = bikeCategory[name];
+      const catLabel = cat ? cat : 'No category set';
+      return `
+        <button type="button" class="bike-pick" data-name="${name.replace(/"/g,'&quot;')}">
+          <span>
+            <span class="bp-name">${highlight(name, query)}</span>
+            <span class="bp-cat">${highlight(catLabel, query)}</span>
+          </span>
+          <span class="bp-arrow">›</span>
+        </button>
+      `;
+    }).join('');
+    return head + items;
   }).join('');
 
   listBox.querySelectorAll('.bike-pick').forEach(btn => {
