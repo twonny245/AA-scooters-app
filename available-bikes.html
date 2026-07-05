@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Available Bikes — AA Scooters</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --sand:#F5EFE6;
+    --ink:#1A2421;
+    --petrol:#0F3D3E;
+    --petrol-light:#175A5B;
+    --cone:#FF6B35;
+    --card:#FFFFFF;
+    --line:#DED4C2;
+    --muted:#5A6663;
+    --ok:#2F855A;
+    --err:#C53030;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--sand); color:var(--ink);
+    font-family:'Inter',sans-serif; min-height:100vh;
+  }
+  .topbar{
+    background:var(--petrol); padding:14px 16px; display:flex;
+    align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;
+  }
+  .topbar .brand{ display:flex; align-items:center; gap:8px; text-decoration:none; }
+  .topbar .brand img{ width:28px; height:28px; object-fit:contain; }
+  .topbar .brand span{
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:15px;
+    color:#fff; letter-spacing:.02em;
+  }
+  .topbar nav{ display:flex; gap:16px; flex-wrap:wrap; }
+  .topbar nav a{
+    color:#CFE3E0; text-decoration:none; font-size:12.5px; font-weight:500;
+    padding:3px 0; border-bottom:2px solid transparent;
+  }
+  .topbar nav a:hover{ color:#fff; }
+  .topbar nav a.active{ color:#fff; border-bottom-color:var(--cone); }
+  .page-head{ max-width:520px; margin:0 auto; padding:22px 16px 4px; }
+  .page-head h1{
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:26px;
+    color:var(--petrol); margin:0;
+  }
+  .page-head .sub{ color:var(--muted); font-size:13px; margin-top:6px; }
+
+  main{ max-width:520px; margin:0 auto; padding:16px 16px 60px; }
+
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:14px;
+    padding:18px; margin-bottom:16px;
+  }
+  .card h2{
+    font-family:'Barlow Condensed',sans-serif; font-size:14px; font-weight:600;
+    letter-spacing:.08em; text-transform:uppercase; color:var(--petrol);
+    margin:0 0 14px; display:flex; align-items:center; gap:8px;
+  }
+  .card h2::before{
+    content:""; width:7px; height:7px; border-radius:50%;
+    background:var(--cone); display:inline-block; flex-shrink:0;
+  }
+
+  .search-wrap{ position:relative; margin-bottom:6px; }
+  .search-wrap input{
+    width:100%; padding:12px 14px; border:1px solid var(--line); border-radius:10px;
+    font-size:15px; font-family:'Inter',sans-serif; background:#fff; color:var(--ink);
+  }
+  .search-wrap input:focus{ outline:none; border-color:var(--petrol-light); }
+
+  .load-status{
+    font-size:12px; color:#B36A2E; background:#FFF3E6; border:1px solid #F3D9B8;
+    border-radius:7px; padding:7px 10px; margin-bottom:12px; display:none;
+  }
+  .load-status.show{ display:block; }
+
+  .results-count{
+    font-size:12px; color:#7A8A86; margin:12px 2px 10px;
+    font-family:'Barlow Condensed',sans-serif; letter-spacing:.06em; text-transform:uppercase;
+  }
+
+  .bike-list{ display:flex; flex-direction:column; gap:8px; }
+  .bike-pick{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    background:#FBFAF7; border:1px solid var(--line); border-left:5px solid var(--ok);
+    border-radius:10px; padding:12px 14px; cursor:pointer; text-align:left;
+    font-family:'Inter',sans-serif; width:100%;
+  }
+  .bike-pick:hover{ border-color:var(--petrol-light); }
+  .bike-pick .bp-name{
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:16px; color:var(--petrol);
+  }
+  .bike-pick .bp-cat{
+    font-size:11.5px; color:var(--muted); margin-top:3px;
+  }
+  .bike-pick .bp-arrow{ color:var(--cone); font-size:18px; font-weight:700; flex-shrink:0; }
+
+  .empty-hint{ font-size:13px; color:#8A948F; padding:14px 2px; text-align:center; }
+
+  .selected-head{
+    display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;
+  }
+  .selected-head h2{ margin:0; }
+  .change-bike{
+    background:none; border:none; color:var(--petrol); text-decoration:underline;
+    font-family:'Inter',sans-serif; font-size:12.5px; font-weight:500;
+    cursor:pointer; padding:0;
+  }
+  .selected-cat{
+    font-size:12.5px; color:var(--petrol); margin:2px 0 14px;
+    background:#EEF5F2; border:1px solid #D8E8E1; border-radius:7px;
+    padding:5px 9px; display:inline-block;
+  }
+  .selected-cat.warn{
+    color:#B36A2E; background:#FFF3E6; border-color:#F3D9B8;
+  }
+
+  label.f{
+    display:block; font-size:12.5px; font-weight:500; color:var(--muted); margin:0 0 6px;
+  }
+  .date-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px; }
+  input[type="date"], input[type="number"]{
+    width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:9px;
+    font-size:14.5px; font-family:'Inter',sans-serif; background:#FBFAF7; color:var(--ink);
+  }
+  input[type="date"]:focus, input[type="number"]:focus{
+    outline:none; border-color:var(--petrol-light); background:#fff;
+  }
+
+  .duration-pill{
+    background:#FBF6EC; border:1px dashed var(--line); border-radius:8px;
+    padding:9px 14px; margin-bottom:14px; display:none;
+    justify-content:space-between; align-items:center;
+  }
+  .duration-pill.show{ display:flex; }
+  .duration-pill span:first-child{
+    font-family:'Barlow Condensed',sans-serif; letter-spacing:.06em; text-transform:uppercase;
+    color:#7A8A86; font-size:12px;
+  }
+  .duration-pill span:last-child{ color:var(--petrol); font-size:14px; font-weight:700; }
+
+  .custom-rate-box{ margin-bottom:14px; display:none; }
+  .custom-rate-box.show{ display:block; }
+  .custom-rate-box .rate-input-wrap{ position:relative; }
+  .custom-rate-box .currency-prefix{
+    position:absolute; left:12px; top:50%; transform:translateY(-50%);
+    color:var(--muted); font-size:14px; pointer-events:none;
+  }
+  .custom-rate-box input[type="number"]{ padding-left:28px; }
+  .custom-rate-box .rate-hint{ color:var(--muted); font-size:11px; margin-top:6px; }
+
+  button.btn{
+    width:100%; padding:14px; border:none; border-radius:10px; background:var(--cone);
+    color:#fff; font-family:'Barlow Condensed',sans-serif; font-weight:700;
+    font-size:16px; letter-spacing:.04em; text-transform:uppercase; cursor:pointer;
+    transition:transform .1s, background .15s;
+  }
+  button.btn:active{ transform:scale(.98); }
+  button.btn:disabled{ background:#C9B9A8; cursor:not-allowed; }
+
+  .result-card{ display:none; }
+  .result-card.show{ display:block; }
+  .result-label{
+    font-family:'Barlow Condensed',sans-serif; font-size:12px; letter-spacing:.08em;
+    text-transform:uppercase; color:#7A8A86; margin-bottom:4px;
+  }
+  .result-price{
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:34px;
+    color:var(--petrol); margin-bottom:14px;
+  }
+  .result-row{
+    display:flex; justify-content:space-between; font-size:13px;
+    padding:6px 0; border-bottom:1px solid var(--line);
+  }
+  .result-row:last-child{ border-bottom:none; }
+  .result-row .key{ color:var(--muted); }
+  .result-row .val{ color:var(--ink); font-weight:600; }
+
+  .status{ font-size:12.5px; margin-top:10px; }
+  .status.err{ color:var(--err); }
+  .status.ok{ color:var(--ok); }
+
+  .hidden{ display:none; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a class="brand" href="index.html">
+    <img src="https://scooterrentalchiangmai.com/wp-content/uploads/2025/02/cropped-logo-3333-101x105.png" alt="AA Scooters logo">
+    <span>AA Scooters</span>
+  </a>
+  <nav>
+    <a href="index.html">Home</a>
+    <a href="customers.html">Customer Record</a>
+    <a href="pricing.html">Price Calculator</a>
+    <a href="parts.html">Parts &amp; Oil</a>
+    <a href="oilchange.html">Oil Change</a>
+    <a href="bikes.html">Bikes Status</a>
+    <a href="bikephotos.html">Bike Photos</a>
+    <a href="available-bikes.html" class="active">Available Bikes</a>
+  </nav>
+</div>
+
+<div class="page-head">
+  <h1>Available Bikes</h1>
+  <div class="sub">Pick a free bike, set the dates, get the price</div>
+</div>
+
+<main>
+  <!-- STEP 1: pick a bike that isn't currently rented -->
+  <div id="pickSection">
+    <div class="card">
+      <h2>Not rented right now</h2>
+      <div class="search-wrap">
+        <input type="text" id="bikeSearch" placeholder="Search available bikes… e.g. GT, Aerox" autocomplete="off">
+      </div>
+      <div class="load-status" id="loadStatus">Loading bikes…</div>
+      <div class="results-count" id="resultsCount"></div>
+      <div class="bike-list" id="bikeList"></div>
+    </div>
+  </div>
+
+  <!-- STEP 2: dates + price, once a bike is picked -->
+  <div id="quoteSection" class="hidden">
+    <div class="card">
+      <div class="selected-head">
+        <h2 id="selectedBikeName">Bike</h2>
+        <button type="button" class="change-bike" id="changeBikeBtn">Change bike</button>
+      </div>
+      <div id="selectedCatBox"></div>
+
+      <label class="f">Rental dates</label>
+      <div class="date-grid">
+        <div>
+          <label class="f" for="fromDate">From</label>
+          <input type="date" id="fromDate">
+        </div>
+        <div>
+          <label class="f" for="toDate">To</label>
+          <input type="date" id="toDate">
+        </div>
+      </div>
+
+      <div class="duration-pill" id="durationPill">
+        <span>Rental duration</span>
+        <span id="durationText"></span>
+      </div>
+
+      <div class="custom-rate-box" id="customRateBox">
+        <label class="f" for="customRateInput">Custom monthly rate</label>
+        <div class="rate-input-wrap">
+          <span class="currency-prefix">฿</span>
+          <input type="number" id="customRateInput" min="1" step="1" inputmode="numeric" placeholder="e.g. 3500">
+        </div>
+        <div class="rate-hint">This bike's category didn't match a known rate — enter a monthly rate to price it. Daily rate is this ÷ 30, scaled to the rental length.</div>
+      </div>
+
+      <button class="btn" id="calcBtn" type="button" disabled>Calculate Price</button>
+      <div class="status err" id="calcStatus"></div>
+    </div>
+
+    <div class="card result-card" id="resultCard">
+      <div class="result-label">Total Rental Cost</div>
+      <div class="result-price" id="resultPrice"></div>
+      <div class="result-row"><span class="key">Bike</span><span class="val" id="rBike"></span></div>
+      <div class="result-row"><span class="key">From</span><span class="val" id="rFrom"></span></div>
+      <div class="result-row"><span class="key">To</span><span class="val" id="rTo"></span></div>
+      <div class="result-row"><span class="key">Duration</span><span class="val" id="rDays"></span></div>
+      <div class="result-row"><span class="key">Per day avg</span><span class="val" id="rAvg"></span></div>
+    </div>
+  </div>
+</main>
+
+<script>
+const scriptUrl = 'https://script.google.com/macros/s/AKfycbxWV72e8u9NwBZS43RdOhNZsNCBa-OFZV5aEKtMgsb0MwExfl9XNt7nTvPrK--hEXTFhQ/exec';
+
+// ---------- rate table (mirrors the Price Calculator page) ----------
+// Category text is looked up per-bike from the "Category" column in the
+// Parts and Oil change sheet, and matched (case/spacing-insensitive)
+// against these names, which mirror the Rates per day tab's categories.
+const CATEGORY_DEFS = [
+  { key: "125cc",                      label: "125CC" },
+  { key: "150-155cc standard key",     label: "155CC Standard Key" },
+  { key: "150-155cc keyless",          label: "155CC Keyless" },
+  { key: "nmax 155cc keyless",         label: "Nmax 155CC" },
+  { key: "forza 300cc",                label: "Forza 300CC" },
+  { key: "xmax 300 keyless",           label: "XMAX 300" },
+];
+
+const RATES = {
+  1:[300,400,450,500,600,800],2:[600,800,900,1000,1200,1600],
+  3:[900,1200,1300,1400,1800,2400],4:[1000,1300,1500,1600,2300,3100],
+  5:[1100,1500,1800,1900,2800,3800],6:[1200,1700,1900,2000,3300,4500],
+  7:[1300,1800,2000,2100,3800,5100],8:[1400,1900,2100,2200,4200,5700],
+  9:[1500,2000,2200,2300,4600,6300],10:[1600,2200,2300,2400,5000,6800],
+  11:[1700,2300,2400,2500,5400,7300],12:[1800,2400,2500,2600,5800,7800],
+  13:[1900,2500,2600,2700,6200,8300],14:[2000,2600,2700,2800,6500,8700],
+  15:[2100,2700,2800,2900,6900,9100],16:[2200,2800,2900,3000,7100,9500],
+  17:[2300,2900,3000,3100,7500,9800],18:[2400,3000,3100,3200,7900,10100],
+  19:[2500,3100,3300,3400,8300,10300],20:[2500,3200,3500,3600,8700,10500],
+  21:[2600,3300,3600,3700,9000,10700],22:[2600,3400,3700,3800,8100,10800],
+  23:[2700,3500,3800,3900,8400,11000],24:[2700,3600,3900,4200,8700,11200],
+  25:[2800,3700,4000,4500,9000,11400],26:[2800,3800,4100,4600,9200,11600],
+  27:[2900,3900,4200,4700,9400,11800],28:[2900,3900,4300,4800,9600,11900],
+  29:[3000,4000,4400,4900,9800,12000],30:[3000,4000,4500,5000,10000,12000],
+};
+
+function normalizeCategory(s) {
+  return (s || '').toString().trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function findCategoryIndex(catText) {
+  const norm = normalizeCategory(catText);
+  if (!norm) return -1;
+  return CATEGORY_DEFS.findIndex(c => c.key === norm);
+}
+
+// ---------- state ----------
+let bikeNames = [];       // all bike names, alphabetically sorted
+let bikeCategory = {};    // bikeName -> raw Category text from the sheet
+let customerRows = null;
+let selectedBike = null;
+let selectedCatIndex = -1; // index into CATEGORY_DEFS / RATES columns, or -1 if unmatched
+
+function setLoadStatus(msg) {
+  const el = document.getElementById('loadStatus');
+  if (!msg) { el.classList.remove('show'); return; }
+  el.textContent = msg;
+  el.classList.add('show');
+}
+
+function loadData() {
+  setLoadStatus('Loading bikes…');
+  return Promise.all([
+    fetch(scriptUrl + '?action=parts').then(res => res.json()),
+    fetch(scriptUrl).then(res => res.json()).catch(err => ({ success: false, error: err.message }))
+  ])
+    .then(([partsResult, customerResult]) => {
+      if (!partsResult.success) throw new Error(partsResult.error || 'Could not load bikes');
+
+      const bikeHeader = partsResult.headers[0];
+      const categoryHeader = partsResult.headers.find(h => h.toLowerCase().trim() === 'category');
+
+      bikeNames = [];
+      bikeCategory = {};
+      partsResult.rows.forEach(r => {
+        const name = (r[bikeHeader] || '').toString().trim();
+        if (!name) return;
+        bikeNames.push(name);
+        bikeCategory[name] = categoryHeader ? (r[categoryHeader] || '').toString().trim() : '';
+      });
+      bikeNames.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+
+      if (customerResult && customerResult.success) {
+        customerRows = customerResult.rows;
+        setLoadStatus(null);
+      } else {
+        customerRows = [];
+        setLoadStatus('Rental info unavailable (' + (customerResult && customerResult.error ? customerResult.error : 'unknown error') + ') — all bikes will show as available.');
+      }
+      renderList();
+    })
+    .catch(err => {
+      setLoadStatus('Could not load bikes: ' + err.message);
+    });
+}
+
+// ---- Same rented/not-rented logic as the Bikes Status page ----
+function parseFlexibleDate(str) {
+  if (!str) return null;
+  str = String(str).trim();
+  var slashMatch = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (slashMatch) {
+    var d = parseInt(slashMatch[1], 10), m = parseInt(slashMatch[2], 10) - 1, y = parseInt(slashMatch[3], 10);
+    var dt = new Date(y, m, d);
+    if (!isNaN(dt.getTime())) return dt;
+  }
+  var dt2 = new Date(str);
+  if (!isNaN(dt2.getTime())) return dt2;
+  return null;
+}
+
+function normalizeBikeName(s) {
+  return (s || '').toString()
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function bikeNamesMatch(a, b) {
+  const na = normalizeBikeName(a);
+  const nb = normalizeBikeName(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  return na.includes(nb) || nb.includes(na);
+}
+
+function findCurrentRenter(bikeName) {
+  if (!customerRows || !customerRows.length) return null;
+  if (!normalizeBikeName(bikeName)) return null;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const candidates = customerRows
+    .map((r, sheetIndex) => ({ r, sheetIndex }))
+    .filter(({ r }) => {
+      if (!bikeNamesMatch(r.bikeModel, bikeName)) return false;
+      const ret = parseFlexibleDate(r.returnDate);
+      if (!ret) return false;
+      ret.setHours(0, 0, 0, 0);
+      return ret >= today;
+    });
+
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => b.sheetIndex - a.sheetIndex);
+  return candidates[0].r;
+}
+
+function tokenMatch(value, query) {
+  if (!query) return true;
+  const v = (value || '').toString().toLowerCase();
+  const tokens = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  return tokens.every(t => v.includes(t));
+}
+
+function highlight(value, query) {
+  let out = String(value || '');
+  const tokens = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  tokens.forEach(t => {
+    if (!t) return;
+    const re = new RegExp('(' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig');
+    out = out.replace(re, '<mark>$1</mark>');
+  });
+  return out;
+}
+
+function renderList() {
+  const listBox = document.getElementById('bikeList');
+  const countEl = document.getElementById('resultsCount');
+  const query = document.getElementById('bikeSearch').value.trim();
+
+  const available = bikeNames
+    .filter(name => !findCurrentRenter(name))
+    .filter(name => tokenMatch(name, query))
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+
+  countEl.textContent = available.length + (available.length === 1 ? ' bike available' : ' bikes available');
+
+  if (!available.length) {
+    listBox.innerHTML = '<div class="empty-hint">No available bikes match.</div>';
+    return;
+  }
+
+  listBox.innerHTML = available.map(name => {
+    const cat = bikeCategory[name];
+    const catLabel = cat ? cat : 'No category set';
+    return `
+      <button type="button" class="bike-pick" data-name="${name.replace(/"/g,'&quot;')}">
+        <span>
+          <span class="bp-name">${highlight(name, query)}</span>
+          <span class="bp-cat">${highlight(catLabel, query)}</span>
+        </span>
+        <span class="bp-arrow">›</span>
+      </button>
+    `;
+  }).join('');
+
+  listBox.querySelectorAll('.bike-pick').forEach(btn => {
+    btn.addEventListener('click', () => selectBike(btn.getAttribute('data-name')));
+  });
+}
+
+document.getElementById('bikeSearch').addEventListener('input', renderList);
+
+// ---------- STEP 2: date + price ----------
+function selectBike(name) {
+  selectedBike = name;
+  document.getElementById('pickSection').classList.add('hidden');
+  document.getElementById('quoteSection').classList.remove('hidden');
+  document.getElementById('selectedBikeName').textContent = name;
+
+  const catText = bikeCategory[name];
+  selectedCatIndex = findCategoryIndex(catText);
+  const catBox = document.getElementById('selectedCatBox');
+  const customBox = document.getElementById('customRateBox');
+
+  if (selectedCatIndex >= 0) {
+    catBox.innerHTML = `<span class="selected-cat">Category: <b>${CATEGORY_DEFS[selectedCatIndex].label}</b></span>`;
+    customBox.classList.remove('show');
+  } else if (catText) {
+    catBox.innerHTML = `<span class="selected-cat warn">Category "${catText}" doesn't match a known rate</span>`;
+    customBox.classList.add('show');
+  } else {
+    catBox.innerHTML = `<span class="selected-cat warn">No category set for this bike</span>`;
+    customBox.classList.add('show');
+  }
+
+  document.getElementById('fromDate').value = '';
+  document.getElementById('toDate').value = '';
+  document.getElementById('customRateInput').value = '';
+  document.getElementById('durationPill').classList.remove('show');
+  document.getElementById('resultCard').classList.remove('show');
+  document.getElementById('calcStatus').textContent = '';
+  updateCalcBtn();
+}
+
+document.getElementById('changeBikeBtn').addEventListener('click', () => {
+  selectedBike = null;
+  document.getElementById('quoteSection').classList.add('hidden');
+  document.getElementById('pickSection').classList.remove('hidden');
+});
+
+function daysBetween(from, to) {
+  if (!from || !to) return 0;
+  const diff = (new Date(to) - new Date(from)) / 86400000;
+  return diff > 0 ? Math.round(diff) : 0;
+}
+
+function monthDayBreakdown(from, to) {
+  if (!from || !to) return null;
+  const start = new Date(from);
+  const end = new Date(to);
+  if (end <= start) return null;
+
+  let months = 0;
+  let cursor = new Date(start);
+  while (true) {
+    const next = new Date(cursor);
+    next.setUTCMonth(next.getUTCMonth() + 1);
+    if (next <= end) {
+      cursor = next;
+      months++;
+    } else {
+      break;
+    }
+  }
+  const days = Math.round((end - cursor) / 86400000);
+  return { months, days };
+}
+
+function fmtDuration(from, to) {
+  const bd = monthDayBreakdown(from, to);
+  if (!bd) return '';
+  if (bd.months === 0) {
+    return bd.days + (bd.days === 1 ? ' day' : ' days');
+  }
+  const parts = [bd.months + (bd.months === 1 ? ' month' : ' months')];
+  if (bd.days > 0) parts.push(bd.days + (bd.days === 1 ? ' day' : ' days'));
+  const totalDays = daysBetween(from, to);
+  return parts.join(', ') + ` (${totalDays} days total)`;
+}
+
+function getCustomRate() {
+  const v = parseFloat(document.getElementById('customRateInput').value);
+  return (!isNaN(v) && v > 0) ? v : null;
+}
+
+function getPrice(months, leftoverDays) {
+  const isCustom = selectedCatIndex < 0;
+  let monthlyRate;
+
+  if (isCustom) {
+    const custom = getCustomRate();
+    if (!custom) return null;
+    monthlyRate = custom;
+  } else {
+    monthlyRate = RATES[30][selectedCatIndex];
+  }
+
+  if (months === 0) {
+    if (isCustom) return Math.round((monthlyRate / 30) * leftoverDays);
+    return RATES[leftoverDays][selectedCatIndex];
+  }
+
+  const dailyRate = monthlyRate / 30;
+  return Math.round(monthlyRate * months + leftoverDays * dailyRate);
+}
+
+function fmt(n) {
+  return '฿' + n.toLocaleString('en-US');
+}
+
+function fmtDate(str) {
+  if (!str) return '';
+  return new Date(str).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
+}
+
+function updateCalcBtn() {
+  const from = document.getElementById('fromDate').value;
+  const to = document.getElementById('toDate').value;
+  const days = daysBetween(from, to);
+
+  const pill = document.getElementById('durationPill');
+  if (days > 0) {
+    pill.classList.add('show');
+    document.getElementById('durationText').textContent = fmtDuration(from, to);
+  } else {
+    pill.classList.remove('show');
+  }
+
+  const isCustom = selectedCatIndex < 0;
+  const customOk = !isCustom || !!getCustomRate();
+
+  const ready = from && to && days > 0 && customOk;
+  document.getElementById('calcBtn').disabled = !ready;
+  document.getElementById('resultCard').classList.remove('show');
+  document.getElementById('calcStatus').textContent = '';
+}
+
+document.getElementById('fromDate').addEventListener('change', updateCalcBtn);
+document.getElementById('toDate').addEventListener('change', updateCalcBtn);
+document.getElementById('customRateInput').addEventListener('input', updateCalcBtn);
+
+document.getElementById('calcBtn').addEventListener('click', () => {
+  const from = document.getElementById('fromDate').value;
+  const to = document.getElementById('toDate').value;
+  const days = daysBetween(from, to);
+  const bd = monthDayBreakdown(from, to);
+  const statusEl = document.getElementById('calcStatus');
+
+  if (!days || !bd) return;
+
+  if (selectedCatIndex >= 0 && bd.months === 0 && !RATES[bd.days]) {
+    statusEl.textContent = 'Could not find a rate for that many days.';
+    return;
+  }
+
+  const price = getPrice(bd.months, bd.days);
+  if (price === null) {
+    statusEl.textContent = 'Enter a custom monthly rate to price this bike.';
+    return;
+  }
+  statusEl.textContent = '';
+
+  const avg = Math.round(price / days);
+
+  document.getElementById('resultPrice').textContent = fmt(price);
+  document.getElementById('rBike').textContent = selectedBike;
+  document.getElementById('rFrom').textContent = fmtDate(from);
+  document.getElementById('rTo').textContent = fmtDate(to);
+  document.getElementById('rDays').textContent = fmtDuration(from, to);
+  document.getElementById('rAvg').textContent = fmt(avg) + '/day';
+
+  const res = document.getElementById('resultCard');
+  res.classList.add('show');
+  res.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+});
+
+loadData();
+</script>
+
+</body>
+</html>
