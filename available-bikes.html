@@ -200,7 +200,7 @@
   .reply-box textarea{
     width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:9px;
     font-size:14px; font-family:'Inter',sans-serif; background:#FBFAF7; color:var(--ink);
-    resize:vertical; margin-bottom:10px; line-height:1.5;
+    resize:vertical; margin-bottom:10px; line-height:1.5; min-height:140px;
   }
   .reply-box textarea:focus{ outline:none; border-color:var(--petrol-light); background:#fff; }
   button.copy-btn{ background:var(--petrol); }
@@ -297,7 +297,7 @@
 
       <div class="reply-box">
         <label class="f" for="replyText">Reply message</label>
-        <textarea id="replyText" readonly rows="4"></textarea>
+        <textarea id="replyText" readonly rows="7"></textarea>
         <button type="button" class="btn copy-btn" id="copyReplyBtn">Copy Reply</button>
         <div class="status ok" id="copyStatus"></div>
       </div>
