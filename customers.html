@@ -333,6 +333,7 @@
         <input id="bikeModel" required placeholder="GT red 2" autocomplete="off">
         <div class="ac-list" data-for="bikeModel"></div>
       </div>
+      <div class="load-status" id="bikeModelLoadStatus">Loading bikes…</div>
 
       <div class="row2">
         <div>
@@ -615,12 +616,22 @@ loadRows();
 
 // ---- Canonical bike list (from the Parts & Oil sheet) for the main
 // "Bike model" field, so staff pick from the real list instead of
-// free-typing a name that might not match (typos, missing digits, etc). ----
+// free-typing a name that might not match (typos, missing digits, etc).
+// Mirrors the search box on the Bikes Status page: shows "Loading bikes…"
+// until the list arrives, then narrows suggestions as you type. ----
 let bikeNames = [];
 let bikeNamesPromise = null;
 
+function setBikeModelLoadStatus(msg) {
+  const el = document.getElementById('bikeModelLoadStatus');
+  if (!msg) { el.classList.remove('show'); return; }
+  el.textContent = msg;
+  el.classList.add('show');
+}
+
 function loadBikeNames() {
   if (bikeNamesPromise) return bikeNamesPromise;
+  setBikeModelLoadStatus('Loading bikes…');
   bikeNamesPromise = fetch(scriptUrl + '?action=parts')
     .then(res => res.json())
     .then(data => {
@@ -630,10 +641,11 @@ function loadBikeNames() {
         .map(r => (r[bikeHeader] || '').toString().trim())
         .filter(Boolean)
         .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+      setBikeModelLoadStatus(null);
       return bikeNames;
     })
     .catch(err => {
-      console.error('Could not load bike list:', err.message);
+      setBikeModelLoadStatus('Could not load bike list: ' + err.message);
       bikeNamesPromise = null;
       return [];
     });
@@ -655,7 +667,7 @@ function attachBikeModelAutocomplete() {
 
   function open(query) {
     const options = bikeNames.filter(v => tokenMatch(v, query)).slice(0, 8);
-    if (options.length === 0) { close(); return; }
+    if (!query || options.length === 0) { close(); return; }
     list.innerHTML = options.map((v, i) =>
       `<div class="ac-item" data-index="${i}">${highlight(v, query)}</div>`
     ).join('');
@@ -676,6 +688,16 @@ function attachBikeModelAutocomplete() {
 
   input.addEventListener('keydown', (e) => {
     const items = Array.from(list.children);
+    if (e.key === 'Enter') {
+      // Enter confirms the current text (list is already narrowed live)
+      // and closes the suggestion dropdown, same as Bikes Status.
+      e.preventDefault();
+      if (hiIndex >= 0 && list._options) {
+        input.value = list._options[hiIndex];
+      }
+      close();
+      return;
+    }
     if (!items.length) return;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
@@ -685,10 +707,6 @@ function attachBikeModelAutocomplete() {
       e.preventDefault();
       hiIndex = Math.max(hiIndex - 1, 0);
       items.forEach((el, i) => el.classList.toggle('hi', i === hiIndex));
-    } else if (e.key === 'Enter' && hiIndex >= 0) {
-      e.preventDefault();
-      input.value = list._options[hiIndex];
-      close();
     } else if (e.key === 'Escape') {
       close();
     }
