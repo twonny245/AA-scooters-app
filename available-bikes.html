@@ -372,6 +372,7 @@ let bikeCategory = {};    // bikeName -> raw Category text from the sheet
 let bikeDetails = {};     // bikeName -> { make, model, cc, key, deposit, box } from the Bike Tax tab
 let customerRows = null;
 let selectedBikeSet = new Set(); // names of bikes picked for a quote
+let manualDaysMode = false; // true when the "Number of days" field is driving duration, not the calendar
 
 function setLoadStatus(msg) {
   const el = document.getElementById('loadStatus');
@@ -600,6 +601,7 @@ document.getElementById('continueBtn').addEventListener('click', () => {
   document.getElementById('pickSection').classList.add('hidden');
   document.getElementById('quoteSection').classList.remove('hidden');
   renderSelectedBikes();
+  manualDaysMode = false;
   document.getElementById('fromDate').value = '';
   document.getElementById('toDate').value = '';
   document.getElementById('daysInput').value = '';
@@ -685,17 +687,13 @@ function renderSelectedBikes() {
   });
 }
 
-// ---------- dates: From/To, or Number of days ----------
+// ---------- dates: From/To, or Number of days (mutually exclusive — ----------
+// entering one clears the other, so "Number of days" never touches the
+// calendar fields and the calendar never gets silently overwritten).
 function daysBetween(from, to) {
   if (!from || !to) return 0;
   const diff = (new Date(to) - new Date(from)) / 86400000;
   return diff > 0 ? Math.round(diff) : 0;
-}
-
-function daysToDate(fromStr, days) {
-  const d = new Date(fromStr + 'T00:00:00');
-  d.setDate(d.getDate() + Number(days));
-  return d.toISOString().slice(0, 10);
 }
 
 function monthDayBreakdown(from, to) {
@@ -733,28 +731,26 @@ function fmtDuration(from, to) {
 }
 
 document.getElementById('fromDate').addEventListener('change', () => {
-  const daysVal = parseInt(document.getElementById('daysInput').value, 10);
-  const fromVal = document.getElementById('fromDate').value;
-  if (daysVal > 0 && fromVal) {
-    document.getElementById('toDate').value = daysToDate(fromVal, daysVal);
-  }
+  manualDaysMode = false;
+  document.getElementById('daysInput').value = '';
   updateCalcBtn();
 });
 
 document.getElementById('toDate').addEventListener('change', () => {
-  const from = document.getElementById('fromDate').value;
-  const to = document.getElementById('toDate').value;
-  const d = daysBetween(from, to);
-  document.getElementById('daysInput').value = d > 0 ? d : '';
+  manualDaysMode = false;
+  document.getElementById('daysInput').value = '';
   updateCalcBtn();
 });
 
 document.getElementById('daysInput').addEventListener('input', () => {
   const daysVal = parseInt(document.getElementById('daysInput').value, 10);
-  if (!daysVal || daysVal <= 0) { updateCalcBtn(); return; }
-  const fromEl = document.getElementById('fromDate');
-  if (!fromEl.value) fromEl.value = new Date().toISOString().slice(0, 10);
-  document.getElementById('toDate').value = daysToDate(fromEl.value, daysVal);
+  if (daysVal > 0) {
+    manualDaysMode = true;
+    document.getElementById('fromDate').value = '';
+    document.getElementById('toDate').value = '';
+  } else {
+    manualDaysMode = false;
+  }
   updateCalcBtn();
 });
 
@@ -801,17 +797,28 @@ function allCustomRatesValid() {
 function updateCalcBtn() {
   const from = document.getElementById('fromDate').value;
   const to = document.getElementById('toDate').value;
-  const days = daysBetween(from, to);
+  const daysVal = parseInt(document.getElementById('daysInput').value, 10);
 
   const pill = document.getElementById('durationPill');
-  if (days > 0) {
+  let durationDays = 0;
+  let durationLabel = '';
+
+  if (manualDaysMode && daysVal > 0) {
+    durationDays = daysVal;
+    durationLabel = daysVal + (daysVal === 1 ? ' day' : ' days');
+  } else {
+    durationDays = daysBetween(from, to);
+    if (durationDays > 0) durationLabel = fmtDuration(from, to);
+  }
+
+  if (durationDays > 0) {
     pill.classList.add('show');
-    document.getElementById('durationText').textContent = fmtDuration(from, to);
+    document.getElementById('durationText').textContent = durationLabel;
   } else {
     pill.classList.remove('show');
   }
 
-  const ready = from && to && days > 0 && selectedBikeSet.size > 0 && allCustomRatesValid();
+  const ready = durationDays > 0 && selectedBikeSet.size > 0 && allCustomRatesValid();
   document.getElementById('calcBtn').disabled = !ready;
   document.getElementById('resultsContainer').innerHTML = '';
   document.getElementById('replyCard').style.display = 'none';
@@ -821,11 +828,27 @@ function updateCalcBtn() {
 document.getElementById('calcBtn').addEventListener('click', () => {
   const from = document.getElementById('fromDate').value;
   const to = document.getElementById('toDate').value;
-  const days = daysBetween(from, to);
-  const bd = monthDayBreakdown(from, to);
+  const daysVal = parseInt(document.getElementById('daysInput').value, 10);
   const statusEl = document.getElementById('calcStatus');
 
-  if (!days || !bd) return;
+  let months, leftoverDays, totalDays, hasRealDates;
+
+  if (manualDaysMode && daysVal > 0) {
+    // Plain day count — no calendar dates involved at all.
+    totalDays = daysVal;
+    months = Math.floor(totalDays / 30);
+    leftoverDays = totalDays % 30;
+    hasRealDates = false;
+  } else {
+    const bd = monthDayBreakdown(from, to);
+    if (!from || !to || !bd) return;
+    months = bd.months;
+    leftoverDays = bd.days;
+    totalDays = daysBetween(from, to);
+    hasRealDates = true;
+  }
+
+  if (!totalDays) return;
 
   const entries = [];
   const names = Array.from(selectedBikeSet).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
@@ -833,7 +856,7 @@ document.getElementById('calcBtn').addEventListener('click', () => {
   for (const name of names) {
     const catIndex = findCategoryIndex(bikeCategory[name]);
 
-    if (catIndex >= 0 && bd.months === 0 && !RATES[bd.days]) {
+    if (catIndex >= 0 && months === 0 && !RATES[leftoverDays]) {
       statusEl.textContent = `Could not find a rate for that many days for ${name}.`;
       return;
     }
@@ -849,13 +872,19 @@ document.getElementById('calcBtn').addEventListener('click', () => {
       customRate = v;
     }
 
-    const price = priceFor(catIndex, customRate, bd.months, bd.days);
+    const price = priceFor(catIndex, customRate, months, leftoverDays);
     if (price === null) {
       statusEl.textContent = `Could not calculate a price for ${name}.`;
       return;
     }
 
-    entries.push({ name, price, from, to });
+    entries.push({
+      name,
+      price,
+      totalDays,
+      from: hasRealDates ? from : null,
+      to: hasRealDates ? to : null
+    });
   }
 
   statusEl.textContent = '';
@@ -866,16 +895,25 @@ function renderResults(entries) {
   const container = document.getElementById('resultsContainer');
 
   container.innerHTML = entries.map(e => {
-    const d = daysBetween(e.from, e.to);
-    const avg = d > 0 ? Math.round(e.price / d) : 0;
+    const avg = e.totalDays > 0 ? Math.round(e.price / e.totalDays) : 0;
+    const hasRealDates = !!(e.from && e.to);
+
+    const dateRows = hasRealDates ? `
+        <div class="result-row"><span class="key">From</span><span class="val">${fmtDate(e.from)}</span></div>
+        <div class="result-row"><span class="key">To</span><span class="val">${fmtDate(e.to)}</span></div>
+    ` : '';
+
+    const durationLabel = hasRealDates
+      ? fmtDuration(e.from, e.to)
+      : e.totalDays + (e.totalDays === 1 ? ' day' : ' days');
+
     return `
       <div class="card">
         <div class="result-label">Total Rental Cost</div>
         <div class="result-price">${fmt(e.price)}</div>
         <div class="result-row"><span class="key">Bike</span><span class="val">${e.name}</span></div>
-        <div class="result-row"><span class="key">From</span><span class="val">${fmtDate(e.from)}</span></div>
-        <div class="result-row"><span class="key">To</span><span class="val">${fmtDate(e.to)}</span></div>
-        <div class="result-row"><span class="key">Duration</span><span class="val">${fmtDuration(e.from, e.to)}</span></div>
+        ${dateRows}
+        <div class="result-row"><span class="key">Duration</span><span class="val">${durationLabel}</span></div>
         <div class="result-row"><span class="key">Per day avg</span><span class="val">${fmt(avg)}/day</span></div>
       </div>
     `;
@@ -896,26 +934,46 @@ function formatDepositText(raw) {
   return raw;
 }
 
-// Duration phrasing just for the copyable reply text: exactly 30 days reads
-// as "one month"; any other length (including 31+) is just the plain day
-// count, rather than the month/day breakdown used in the price cards above.
+// Duration phrasing just for the copyable reply text: exactly 30 days (or
+// a calendar range exactly as long as its starting month) reads as "one
+// month"; any other length is just the plain day count.
 function daysInMonthOf(dateStr) {
   const d = new Date(dateStr);
   return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
 }
 
-function replyDurationText(from, to) {
-  const days = daysBetween(from, to);
-  const monthLength = daysInMonthOf(from);
-  if (days === monthLength) return 'one month';
+function replyDurationText(entry) {
+  if (entry.from && entry.to) {
+    const days = daysBetween(entry.from, entry.to);
+    const monthLength = daysInMonthOf(entry.from);
+    if (days === monthLength) return 'one month';
+    return days + (days === 1 ? ' day' : ' days');
+  }
+  const days = entry.totalDays;
+  if (days === 30) return 'one month';
   return days + (days === 1 ? ' day' : ' days');
+}
+
+// Just the model name (e.g. "Aerox", "GT") for the deposit summary, since
+// the make ("Yamaha") was already stated when the bike was introduced
+// earlier in the message — no need to repeat it there.
+function shortBikeLabel(entry) {
+  const details = bikeDetails[entry.name] || {};
+  return details.model || entry.name;
+}
+
+function joinWithAnd(list) {
+  if (list.length === 1) return list[0];
+  if (list.length === 2) return `${list[0]} and ${list[1]}`;
+  return `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`;
 }
 
 // Builds one sentence describing a single bike offer. The very first bike
 // in the list reads like the original single-bike reply ("Yes we have a
 // ... available."); every bike after that reads as "We also have our ...
 // available." so the message flows as a set of options rather than
-// repeating the same opening line.
+// repeating the same opening line. Deposits are NOT mentioned per-bike
+// here — they're grouped into one summary sentence at the end instead.
 function describeBikeOffer(entry, isFirst) {
   const details = bikeDetails[entry.name] || {};
   const nameParts = [];
@@ -932,12 +990,7 @@ function describeBikeOffer(entry, isFirst) {
     ? `Yes we have a ${bikeDesc} bike available.`
     : `We also have our ${bikeDesc} bike available.`;
 
-  let sentence = `${intro} It will be ${fmt(entry.price)} for ${replyDurationText(entry.from, entry.to)}.`;
-
-  const depositText = formatDepositText(details.deposit);
-  if (depositText) {
-    sentence += ` There is a ${depositText} refundable deposit.`;
-  }
+  let sentence = `${intro} It will be ${fmt(entry.price)} for ${replyDurationText(entry)}.`;
 
   if ((details.box || '').toString().trim().toLowerCase() === 'yes') {
     sentence += ` This model also comes with a handy top box for extra storage.`;
@@ -946,10 +999,40 @@ function describeBikeOffer(entry, isFirst) {
   return sentence;
 }
 
+// One combined sentence per distinct deposit amount, e.g.
+// "For the GT, Aerox and Nmax, the deposit is ฿2,000. For the Forza, the
+// deposit is ฿3,000." Bikes with no deposit set are simply left out.
+function buildDepositSummary(entries) {
+  const groups = {};
+  const order = [];
+
+  entries.forEach(e => {
+    const details = bikeDetails[e.name] || {};
+    const depositText = formatDepositText(details.deposit);
+    if (!depositText) return;
+    if (!groups[depositText]) {
+      groups[depositText] = [];
+      order.push(depositText);
+    }
+    groups[depositText].push(shortBikeLabel(e));
+  });
+
+  if (!order.length) return '';
+
+  return order
+    .map(depositText => `For the ${joinWithAnd(groups[depositText])}, the deposit is ${depositText}.`)
+    .join(' ');
+}
+
 function buildReplyTextMulti(entries) {
   if (!entries.length) return '';
   const sentences = entries.map((e, i) => describeBikeOffer(e, i === 0));
-  return `Thanks for getting in touch! ${sentences.join(' ')}`;
+  let message = `Thanks for getting in touch! ${sentences.join(' ')}`;
+
+  const depositSummary = buildDepositSummary(entries);
+  if (depositSummary) message += ` ${depositSummary}`;
+
+  return message;
 }
 
 document.getElementById('copyReplyBtn').addEventListener('click', () => {
