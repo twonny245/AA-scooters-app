@@ -443,6 +443,10 @@ function getBikeTaxCategories() {
     if (depositCol === -1) depositCol = headerRow.indexOf('deposit');
     var boxCol = headerRow.indexOf('box', searchFrom);
     if (boxCol === -1) boxCol = headerRow.indexOf('box');
+    var absCol = headerRow.indexOf('abs', searchFrom);
+    if (absCol === -1) absCol = headerRow.indexOf('abs');
+    var tractionCol = headerRow.indexOf('traction control', searchFrom);
+    if (tractionCol === -1) tractionCol = headerRow.indexOf('traction control');
 
     // Plate number lives near the front of the sheet (e.g. "Plate No."),
     // not next to make/model, so it's looked up across the whole header
@@ -468,6 +472,8 @@ function getBikeTaxCategories() {
         key: keyCol > -1 ? (values[i][keyCol] || '').toString().trim() : '',
         deposit: depositCol > -1 ? (values[i][depositCol] || '').toString().trim() : '',
         box: boxCol > -1 ? (values[i][boxCol] || '').toString().trim() : '',
+        abs: absCol > -1 ? (values[i][absCol] || '').toString().trim() : '',
+        tractionControl: tractionCol > -1 ? (values[i][tractionCol] || '').toString().trim() : '',
         plate: plateCol > -1 ? (values[i][plateCol] || '').toString().trim() : ''
       });
     }

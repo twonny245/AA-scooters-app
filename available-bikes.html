@@ -415,7 +415,9 @@ function loadData() {
           cc: match ? (match.cc || '').toString().trim() : '',
           key: match ? (match.key || '').toString().trim() : '',
           deposit: match ? (match.deposit || '').toString().trim() : '',
-          box: match ? (match.box || '').toString().trim() : ''
+          box: match ? (match.box || '').toString().trim() : '',
+          abs: match ? (match.abs || '').toString().trim() : '',
+          tractionControl: match ? (match.tractionControl || '').toString().trim() : ''
         };
       });
 
@@ -971,6 +973,8 @@ function bikeLineText(entry) {
   const specParts = [];
   if ((details.key || '').toString().trim()) specParts.push(details.key.toString().trim());
   if ((details.box || '').toString().trim().toLowerCase() === 'yes') specParts.push('Top Box');
+  if ((details.abs || '').toString().trim().toLowerCase() === 'yes') specParts.push('ABS');
+  if ((details.tractionControl || '').toString().trim().toLowerCase() === 'yes') specParts.push('Traction Control');
   const specText = specParts.length ? ` (${specParts.join(' + ')})` : '';
 
   const depositText = formatDepositText(details.deposit);
