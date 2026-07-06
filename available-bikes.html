@@ -225,6 +225,7 @@
     width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:9px;
     font-size:14px; font-family:'Inter',sans-serif; background:#FBFAF7; color:var(--ink);
     resize:vertical; margin-bottom:10px; line-height:1.5; min-height:160px;
+    overflow-y:hidden;
   }
   .reply-box textarea:focus{ outline:none; border-color:var(--petrol-light); background:#fff; }
   button.copy-btn{ background:var(--petrol); }
@@ -314,7 +315,7 @@
     <div class="card" id="replyCard" style="display:none;">
       <div class="reply-box">
         <label class="f" for="replyText">Reply message</label>
-        <textarea id="replyText" readonly rows="7"></textarea>
+        <textarea id="replyText" readonly rows="12"></textarea>
         <button type="button" class="btn copy-btn" id="copyReplyBtn">Copy Reply</button>
         <div class="status ok" id="copyStatus"></div>
       </div>
@@ -919,7 +920,9 @@ function renderResults(entries) {
     `;
   }).join('');
 
-  document.getElementById('replyText').value = buildReplyTextMulti(entries);
+  const replyTextarea = document.getElementById('replyText');
+  replyTextarea.value = buildReplyTextMulti(entries);
+  autoGrowReplyText();
   document.getElementById('copyStatus').textContent = '';
 
   const replyCard = document.getElementById('replyCard');
@@ -1033,6 +1036,12 @@ function buildReplyTextMulti(entries) {
   if (depositSummary) message += ` ${depositSummary}`;
 
   return message;
+}
+
+function autoGrowReplyText() {
+  const el = document.getElementById('replyText');
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
 }
 
 document.getElementById('copyReplyBtn').addEventListener('click', () => {
