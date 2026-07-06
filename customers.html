@@ -767,11 +767,36 @@ function normalizeBikeName(s) {
     .replace(/\s+/g, ' ');
 }
 
+// Words/numerals used to tell apart otherwise-identical bike names that are
+// actually different bikes — e.g. "Gran Filano" and "Gran Filano Two" are
+// two separate bikes, not a loose match of the same one.
+const DISTINGUISHING_SUFFIXES = new Set([
+  'one','two','three','four','five','six','seven','eight','nine','ten',
+  'i','ii','iii','iv','v','vi','vii','viii','ix','x',
+  '1','2','3','4','5','6','7','8','9','10'
+]);
+
 function bikeNamesMatch(a, b) {
   const na = normalizeBikeName(a);
   const nb = normalizeBikeName(b);
   if (!na || !nb) return false;
   if (na === nb) return true;
+
+  const ta = na.split(' ');
+  const tb = nb.split(' ');
+  const shorter = ta.length <= tb.length ? ta : tb;
+  const longer = ta.length <= tb.length ? tb : ta;
+
+  // Fuzzy match allowed when the shorter name is a clean word-for-word
+  // prefix of the longer one — UNLESS the extra trailing word(s) are a
+  // distinguishing number/ordinal, in which case it's a different bike.
+  const isPrefix = shorter.every((tok, i) => tok === longer[i]);
+  if (isPrefix) {
+    const extra = longer.slice(shorter.length);
+    if (extra.some(t => DISTINGUISHING_SUFFIXES.has(t))) return false;
+    return true;
+  }
+
   return na.includes(nb) || nb.includes(na);
 }
 

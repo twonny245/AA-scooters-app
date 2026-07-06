@@ -248,15 +248,39 @@ function normalizeBikeName(s) {
     .replace(/\s+/g, ' ');
 }
 
+// Words/numerals used to tell apart otherwise-identical bike names that are
+// actually different bikes — e.g. "Gran Filano" and "Gran Filano Two" are
+// two separate bikes, not a loose match of the same one.
+const DISTINGUISHING_SUFFIXES = new Set([
+  'one','two','three','four','five','six','seven','eight','nine','ten',
+  'i','ii','iii','iv','v','vi','vii','viii','ix','x',
+  '1','2','3','4','5','6','7','8','9','10'
+]);
+
 // True if the two (normalized) names are the same bike, allowing for one
 // being a shorter/longer version of the other (e.g. missing the cc suffix,
 // or a couple of extra/missing words) — since the Customer Record bike
-// field is free text and won't always exactly match the Parts sheet.
+// field is free text and won't always exactly match the Parts sheet. The
+// exception is a trailing distinguishing number/ordinal ("Two", "II", "2"),
+// which marks a genuinely different bike rather than a looser match.
 function bikeNamesMatch(a, b) {
   const na = normalizeBikeName(a);
   const nb = normalizeBikeName(b);
   if (!na || !nb) return false;
   if (na === nb) return true;
+
+  const ta = na.split(' ');
+  const tb = nb.split(' ');
+  const shorter = ta.length <= tb.length ? ta : tb;
+  const longer = ta.length <= tb.length ? tb : ta;
+
+  const isPrefix = shorter.every((tok, i) => tok === longer[i]);
+  if (isPrefix) {
+    const extra = longer.slice(shorter.length);
+    if (extra.some(t => DISTINGUISHING_SUFFIXES.has(t))) return false;
+    return true;
+  }
+
   return na.includes(nb) || nb.includes(na);
 }
 

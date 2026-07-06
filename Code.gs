@@ -345,11 +345,19 @@ function getPartsData() {
       return val !== undefined && val !== null ? String(val) : '';
     }
 
-    var rows = values.slice(1).map(function(row) {
+    // Read strikethrough formatting on the bike-name column (col 1) so the
+    // client can tell "sold, struck through on purpose" bikes apart from
+    // bikes that are just missing/mismatched data. getFontLines() returns
+    // "line-through" or "none" per cell.
+    var lastRow = sheet.getLastRow();
+    var strikeArray = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, 1).getFontLines() : [];
+
+    var rows = values.slice(1).map(function(row, i) {
       var obj = {};
-      headers.forEach(function(h, i) {
-        obj[h] = cellToString(row[i]);
+      headers.forEach(function(h, i2) {
+        obj[h] = cellToString(row[i2]);
       });
+      obj.__struck = !!(strikeArray[i] && strikeArray[i][0] === 'line-through');
       return obj;
     }).filter(function(r) { return (r[headers[0]] || '').toString().trim() !== ''; });
 
