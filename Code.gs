@@ -50,7 +50,11 @@ function doPost(e) {
     // F bikeModel, G status (blank, unused), H rentingDateFrom, I returnDate,
     // J returnTime, K deliverToHotel, L totalPrice, M paidBy, N situation
     // (left blank here — set later by markBikeReturned/closeBikeForExtend),
-    // O deposit method (blank if no deposit was taken).
+    // O deposit method (blank if no deposit was taken), P source ("Direct"
+    // for a normal walk-in add on this page, "Extend" when this row was
+    // auto-populated by the Extend flow on Bikes Status).
+    var isExtendSource = (data.source || '').toString().trim().toLowerCase() === 'extend';
+
     sheet.appendRow([
       Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'dd/MM/yyyy'),
       data.contact || '',
@@ -66,11 +70,12 @@ function doPost(e) {
       data.totalPrice || '',
       data.paidBy || '',
       '',
-      data.deposit || ''
+      data.deposit || '',
+      isExtendSource ? 'Extend' : 'Direct'
     ]);
 
     var newRow = sheet.getLastRow();
-    var numCols = 15;
+    var numCols = 16;
     var newRange = sheet.getRange(newRow, 1, 1, numCols);
     newRange.setBorder(true, true, true, true, true, true);
 
@@ -120,12 +125,16 @@ function doPost(e) {
     // Security deposit (the checkbox/dropdown on the intake form -- separate
     // from how the rental itself was paid). Only Scan/Wise/Revolut need a
     // logged row; Cash and Passport are just noted on the customer row and
-    // need nothing else. Wrapped so a problem here never breaks the rest of
-    // customer intake, which has already succeeded by this point.
+    // need nothing else. Never applicable to an extension row (no deposit
+    // is taken when extending an existing rental), so it's skipped outright
+    // in that case -- this is a server-side safety net on top of the intake
+    // form already hiding the deposit fields for an extension. Wrapped so a
+    // problem here never breaks the rest of customer intake, which has
+    // already succeeded by this point.
     var securityDepositWarning = null;
     try {
       var depositMethodLower = (data.deposit || '').toString().trim().toLowerCase();
-      if (depositMethodLower === 'scan' || depositMethodLower === 'wise' || depositMethodLower === 'revolut') {
+      if (!isExtendSource && (depositMethodLower === 'scan' || depositMethodLower === 'wise' || depositMethodLower === 'revolut')) {
         logSecurityDeposit(ss, depositMethodLower, data.depositAmount, data.name);
       }
     } catch (secDepErr) {
@@ -164,14 +173,20 @@ function formatIsoDateToDMY(isoStr) {
 }
 
 // ---- Builds the "<bike> rent <N> day(s)" text used both on the monthly
-// income sheet and the cash sheet, so the two stay in the same format. ----
+// income sheet and the cash sheet, so the two stay in the same format.
+// When this row came from the Extend flow (Bikes Status -> Extend), "rent"
+// is swapped for "extend" instead -- e.g. "GT red 2 extend 30 days" -- so
+// it's clear at a glance on those sheets which rows are fresh rentals and
+// which are extensions of an existing one. ----
 function buildRentalIncomeText(data, dayCount) {
   var bikeName = (data.bikeModel || '').toString().trim();
+  var isExtendSource = (data.source || '').toString().trim().toLowerCase() === 'extend';
+  var verb = isExtendSource ? 'extend' : 'rent';
   var text = bikeName;
   if (dayCount !== null && dayCount !== undefined && !isNaN(dayCount)) {
-    text += ' rent ' + dayCount + (dayCount === 1 ? ' day' : ' days');
+    text += ' ' + verb + ' ' + dayCount + (dayCount === 1 ? ' day' : ' days');
   } else {
-    text += ' rent';
+    text += ' ' + verb;
   }
   return text;
 }

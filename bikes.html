@@ -896,7 +896,8 @@ function confirmExtend(rowNumber, daysToExtend, amountPaid, extendMonth) {
           returnTime: renter.returnTime || '',
           deliverToHotel: renter.deliverToHotel || '',
           totalPrice: String(finalAmount),
-          paidBy: renter.paidBy || ''
+          paidBy: renter.paidBy || '',
+          source: 'extend'
         });
         window.location.href = 'customers.html?' + params.toString();
       })

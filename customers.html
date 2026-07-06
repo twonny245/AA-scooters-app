@@ -393,19 +393,22 @@
         <input type="checkbox" id="dealCheckbox">
         <label for="dealCheckbox">Deal</label>
       </div>
-      <div class="deal-row">
-        <input type="checkbox" id="depositCheckbox">
-        <label for="depositCheckbox">Deposit</label>
+      <div id="depositSection">
+        <div class="deal-row">
+          <input type="checkbox" id="depositCheckbox">
+          <label for="depositCheckbox">Deposit</label>
+        </div>
+        <select id="depositMethod" disabled style="margin-top:8px;">
+          <option value="">Select deposit method</option>
+          <option value="Cash">Cash</option>
+          <option value="Scan">Scan</option>
+          <option value="Wise">Wise</option>
+          <option value="Revolut">Revolut</option>
+          <option value="Passport">Passport</option>
+        </select>
+        <input id="depositAmount" type="number" min="0" step="1" placeholder="Deposit amount (฿)" class="hidden" style="margin-top:8px;">
       </div>
-      <select id="depositMethod" disabled style="margin-top:8px;">
-        <option value="">Select deposit method</option>
-        <option value="Cash">Cash</option>
-        <option value="Scan">Scan</option>
-        <option value="Wise">Wise</option>
-        <option value="Revolut">Revolut</option>
-        <option value="Passport">Passport</option>
-      </select>
-      <input id="depositAmount" type="number" min="0" step="1" placeholder="Deposit amount (฿)" class="hidden" style="margin-top:8px;">
+      <div class="load-status" id="depositSkipNote" style="margin-top:8px;">No deposit needed — this is a rental extension, not a new rental.</div>
     </div>
 
 
@@ -504,6 +507,33 @@ const form = document.getElementById('intakeForm');
 const statusBox = document.getElementById('statusBox');
 const submitBtn = document.getElementById('submitBtn');
 
+// Tracks whether the entry currently in the form is a normal walk-in add
+// ("direct") or was auto-populated by the "Extend" flow on Bikes Status
+// ("extend"). Sent to the backend so the monthly/cash sheet rows read
+// "<bike> extend N days" instead of "<bike> rent N days", and so the
+// security deposit section (never applicable to an extension) stays out
+// of the way. Resets back to "direct" after each successful save, since
+// only the row the redirect prefilled should be marked as an extension.
+let entrySource = 'direct';
+
+function setDepositSectionVisible(visible) {
+  const section = document.getElementById('depositSection');
+  const note = document.getElementById('depositSkipNote');
+  if (visible) {
+    section.classList.remove('hidden');
+    note.classList.remove('show');
+  } else {
+    depositCheckbox.checked = false;
+    depositMethod.disabled = true;
+    depositMethod.value = '';
+    depositAmount.classList.add('hidden');
+    depositAmount.required = false;
+    depositAmount.value = '';
+    section.classList.add('hidden');
+    note.classList.add('show');
+  }
+}
+
 function setDefaultsToNow() {
   const now = new Date();
   const pad = (n) => String(n).padStart(2, '0');
@@ -591,7 +621,8 @@ form.addEventListener('submit', async (e) => {
     totalPrice: totalPrice,
     paidBy: document.getElementById('paidBy').value,
     deposit: depositCheckbox.checked ? depositMethod.value : '',
-    depositAmount: (depositCheckbox.checked && DEPOSIT_METHODS_NEEDING_AMOUNT.includes(depositMethod.value)) ? depositAmount.value : ''
+    depositAmount: (depositCheckbox.checked && DEPOSIT_METHODS_NEEDING_AMOUNT.includes(depositMethod.value)) ? depositAmount.value : '',
+    source: entrySource
   };
 
   try {
@@ -618,6 +649,8 @@ form.addEventListener('submit', async (e) => {
       depositMethod.required = false;
       depositAmount.classList.add('hidden');
       depositAmount.required = false;
+      entrySource = 'direct';
+      setDepositSectionVisible(true);
       setDefaultsToNow();
     } else {
       throw new Error(data.error || 'Unknown error');
@@ -676,7 +709,13 @@ function prefillFromQueryParams() {
     }
   }
 
-  statusBox.textContent = 'Prefilled from an extended rental — check the details, then save.';
+  if (qp.get('source') === 'extend') {
+    entrySource = 'extend';
+    setDepositSectionVisible(false);
+    statusBox.textContent = 'Prefilled from an extended rental — no deposit needed here. Check the details, then save.';
+  } else {
+    statusBox.textContent = 'Prefilled from an extended rental — check the details, then save.';
+  }
   statusBox.className = 'status ok';
 }
 
