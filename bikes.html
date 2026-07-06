@@ -511,6 +511,13 @@ function renterActionsHtml(renter) {
       <div class="bc-actions bc-actions-picker">
         <input type="number" min="1" step="1" class="picker-input" id="extendDaysInput-${rowNumber}" placeholder="Days to extend" ${isSaving ? 'disabled' : ''}>
         <input type="number" min="0" step="any" class="picker-input" id="extendAmountInput-${rowNumber}" placeholder="Amount paid (฿)" ${isSaving ? 'disabled' : ''}>
+        <select class="picker-input" id="extendPaidByInput-${rowNumber}" ${isSaving ? 'disabled' : ''}>
+          <option value="">Paid by…</option>
+          <option value="cash">Cash</option>
+          <option value="scan">QR Scan</option>
+          <option value="wise">Wise</option>
+          <option value="revolut">Revolut</option>
+        </select>
         <div class="extend-month-row">
           <input type="checkbox" id="extendMonthCheckbox-${rowNumber}" ${isSaving ? 'disabled' : ''}>
           <label for="extendMonthCheckbox-${rowNumber}">Extend 1 month</label>
@@ -728,9 +735,11 @@ document.getElementById('listBox').addEventListener('click', (e) => {
     const daysInput = document.getElementById('extendDaysInput-' + rowNumber);
     const amountInput = document.getElementById('extendAmountInput-' + rowNumber);
     const monthCheckbox = document.getElementById('extendMonthCheckbox-' + rowNumber);
+    const paidByInput = document.getElementById('extendPaidByInput-' + rowNumber);
     const extendMonth = !!(monthCheckbox && monthCheckbox.checked);
     const days = daysInput ? parseInt(daysInput.value, 10) : NaN;
     const amountRaw = amountInput ? amountInput.value.trim() : '';
+    const paidBy = paidByInput ? paidByInput.value : '';
     // A blank amount is treated as 0 rather than rejected — for long
     // extensions (checkbox, or 30+ days) a 0/blank amount gets auto-priced
     // below in confirmExtend() as a fallback, in case the live auto-fill
@@ -746,7 +755,11 @@ document.getElementById('listBox').addEventListener('click', (e) => {
       alert('Enter the amount paid.');
       return;
     }
-    confirmExtend(rowNumber, days, amount, extendMonth);
+    if (!paidBy) {
+      alert('Select how this extension was paid.');
+      return;
+    }
+    confirmExtend(rowNumber, days, amount, extendMonth, paidBy);
   }
 });
 
@@ -842,7 +855,7 @@ function toIsoDate(d) {
 // off to the Customer Record form to start a brand-new rental record for
 // the extension period, prefilled from this booking's details. The
 // checkbox takes precedence over the days field if both are given.
-function confirmExtend(rowNumber, daysToExtend, amountPaid, extendMonth) {
+function confirmExtend(rowNumber, daysToExtend, amountPaid, extendMonth, paidBy) {
   const isLongExtension = extendMonth || (daysToExtend >= 30);
 
   if (isLongExtension) {
@@ -896,7 +909,7 @@ function confirmExtend(rowNumber, daysToExtend, amountPaid, extendMonth) {
           returnTime: renter.returnTime || '',
           deliverToHotel: renter.deliverToHotel || '',
           totalPrice: String(finalAmount),
-          paidBy: renter.paidBy || '',
+          paidBy: paidBy || renter.paidBy || '',
           source: 'extend'
         });
         window.location.href = 'customers.html?' + params.toString();
@@ -917,7 +930,7 @@ function confirmExtend(rowNumber, daysToExtend, amountPaid, extendMonth) {
   fetch(scriptUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ action: 'extendBike', rowNumber: rowNumber, daysToExtend: daysToExtend, amountPaid: amountPaid })
+    body: JSON.stringify({ action: 'extendBike', rowNumber: rowNumber, daysToExtend: daysToExtend, amountPaid: amountPaid, paidBy: paidBy })
   })
     .then(res => res.json())
     .then(result => {

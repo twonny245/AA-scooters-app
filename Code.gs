@@ -551,6 +551,10 @@ function extendBikeRow(data) {
     if (isNaN(amountPaid) || amountPaid < 0) {
       throw new Error('Amount paid must be a number.');
     }
+    var paidBy = (data.paidBy || '').toString().trim();
+    if (!paidBy) {
+      throw new Error('Paid by is required.');
+    }
 
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheet = ss.getSheetByName('customer');
@@ -558,8 +562,11 @@ function extendBikeRow(data) {
       throw new Error('Sheet named "customer" not found in this spreadsheet.');
     }
 
-    var CUSTOMER_RETURN_DATE_COL = 9;  // I: Return date
-    var CUSTOMER_TOTAL_PRICE_COL = 12; // L: total price
+    var CUSTOMER_NAME_COL = 3;          // C: name
+    var CUSTOMER_BIKE_COL = 6;          // F: bikeModel
+    var CUSTOMER_RETURN_DATE_COL = 9;   // I: Return date
+    var CUSTOMER_TOTAL_PRICE_COL = 12;  // L: total price
+    var CUSTOMER_PAIDBY_COL = 13;       // M: paid by
 
     var dateCell = sheet.getRange(rowNumber, CUSTOMER_RETURN_DATE_COL);
     var currentDateValue = dateCell.getValue();
@@ -579,8 +586,59 @@ function extendBikeRow(data) {
     var currentPrice = Number(priceCell.getValue()) || 0;
     priceCell.setFormula('=' + currentPrice + '+' + amountPaid);
 
+    // Record the payment method used for this extension on the row itself
+    // (the sheet only has one "paid by" cell per row, so this reflects the
+    // most recent payment — the same way the total price above rolls the
+    // new amount into the existing figure).
+    sheet.getRange(rowNumber, CUSTOMER_PAIDBY_COL).setValue(paidBy);
+
+    // Everything below mirrors what a brand-new rental (in doPost, above)
+    // logs for its payment — the monthly income sheet, the cash sheet (if
+    // paid in cash), and the Wise/Revolut running deposit total. A short
+    // extension used to skip all of this, so it never showed up on the
+    // current month's income sheet, the cash sheet, or the Wise/Revolut
+    // totals. Each step is wrapped so a logging problem never rolls back
+    // the extension itself, which has already been saved above.
+    var bikeModel = sheet.getRange(rowNumber, CUSTOMER_BIKE_COL).getValue();
+    var custName = sheet.getRange(rowNumber, CUSTOMER_NAME_COL).getValue();
+    var incomeData = {
+      bikeModel: bikeModel || '',
+      name: custName || '',
+      totalPrice: amountPaid,
+      paidBy: paidBy,
+      source: 'extend'
+    };
+
+    var warnings = [];
+
+    try {
+      appendMonthlyIncomeRow(ss, incomeData, daysToExtend);
+    } catch (incomeErr) {
+      warnings.push('Income sheet: ' + incomeErr.message);
+    }
+
+    try {
+      if (paidBy.toLowerCase() === 'cash') {
+        appendCashSheetRow(ss, incomeData, daysToExtend);
+      }
+    } catch (cashErr) {
+      warnings.push('Cash sheet: ' + cashErr.message);
+    }
+
+    try {
+      var paidByLower = paidBy.toLowerCase();
+      if (paidByLower === 'wise' || paidByLower === 'revolut') {
+        processDepositForPayment(ss, paidByLower, amountPaid);
+      }
+    } catch (depositErr) {
+      warnings.push('Deposit total: ' + depositErr.message);
+    }
+
+    var responsePayload = { success: true };
+    if (warnings.length) responsePayload.warning = warnings.join(' ');
+
     return ContentService
-      .createTextOutput(JSON.stringify({ success: true }))
+      .createTextOutput(JSON.stringify(responsePayload))
       .setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {
