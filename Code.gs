@@ -267,7 +267,9 @@ function extendBikeRow(data) {
 // row, that flow closes this booking out — using its current due date,
 // left untouched, as the point it ended — and starts a brand-new rental
 // record for the extension period instead. This just flips "situation" to
-// "Returned"; it deliberately does NOT touch the return date column,
+// "Returned" and normalizes the return date's font color (it's sometimes
+// red from earlier conditional/manual formatting, same fix markBikeReturned
+// applies); it deliberately does NOT change the return date's value,
 // unlike markBikeReturned(). ----
 function closeBikeForExtend(data) {
   try {
@@ -282,7 +284,10 @@ function closeBikeForExtend(data) {
       throw new Error('Sheet named "customer" not found in this spreadsheet.');
     }
 
-    var CUSTOMER_SITUATION_COL = 14; // N: situation
+    var CUSTOMER_RETURN_DATE_COL = 9;  // I: Return date
+    var CUSTOMER_SITUATION_COL = 14;   // N: situation
+
+    sheet.getRange(rowNumber, CUSTOMER_RETURN_DATE_COL).setFontColor('#000000');
     sheet.getRange(rowNumber, CUSTOMER_SITUATION_COL).setValue('Returned');
 
     return ContentService

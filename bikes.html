@@ -193,6 +193,7 @@ const scriptUrl = 'https://script.google.com/macros/s/AKfycbxWV72e8u9NwBZS43RdOh
 
 let bikeNames = [];    // list of bike name strings, alphabetically sorted
 let customerRows = null;
+let categoryRows = []; // bike -> category text, from the Bike Tax tab (for auto-pricing extensions)
 
 function setLoadStatus(msg) {
   const el = document.getElementById('loadStatus');
@@ -215,6 +216,7 @@ function loadData() {
         .map(r => (r[bikeHeader] || '').toString().trim())
         .filter(Boolean)
         .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+      categoryRows = partsResult.categoryRows || [];
 
       if (customerResult && customerResult.success) {
         customerRows = customerResult.rows;
@@ -291,6 +293,98 @@ function bikeNamesMatch(a, b) {
   }
 
   return na.includes(nb) || nb.includes(na);
+}
+
+// ---- Auto-pricing for long extensions (1-month checkbox, or 30+ days) ----
+// Mirrors the Price Calculator / Available Bikes rate table exactly, so the
+// "Amount paid" field on the extend form can auto-fill with the correct
+// quote instead of staff having to go work it out on another page.
+const CATEGORY_DEFS = [
+  { key: "125cc",                      label: "125CC" },
+  { key: "150-155cc standard key",     label: "155CC Standard Key" },
+  { key: "150-155cc keyless",          label: "155CC Keyless" },
+  { key: "nmax 155cc keyless",         label: "Nmax 155CC" },
+  { key: "forza 300cc",                label: "Forza 300CC" },
+  { key: "xmax 300 keyless",           label: "XMAX 300" },
+];
+
+const RATES = {
+  1:[300,400,450,500,600,800],2:[600,800,900,1000,1200,1600],
+  3:[900,1200,1300,1400,1800,2400],4:[1000,1300,1500,1600,2300,3100],
+  5:[1100,1500,1800,1900,2800,3800],6:[1200,1700,1900,2000,3300,4500],
+  7:[1300,1800,2000,2100,3800,5100],8:[1400,1900,2100,2200,4200,5700],
+  9:[1500,2000,2200,2300,4600,6300],10:[1600,2200,2300,2400,5000,6800],
+  11:[1700,2300,2400,2500,5400,7300],12:[1800,2400,2500,2600,5800,7800],
+  13:[1900,2500,2600,2700,6200,8300],14:[2000,2600,2700,2800,6500,8700],
+  15:[2100,2700,2800,2900,6900,9100],16:[2200,2800,2900,3000,7100,9500],
+  17:[2300,2900,3000,3100,7500,9800],18:[2400,3000,3100,3200,7900,10100],
+  19:[2500,3100,3300,3400,8300,10300],20:[2500,3200,3500,3600,8700,10500],
+  21:[2600,3300,3600,3700,9000,10700],22:[2600,3400,3700,3800,8100,10800],
+  23:[2700,3500,3800,3900,8400,11000],24:[2700,3600,3900,4200,8700,11200],
+  25:[2800,3700,4000,4500,9000,11400],26:[2800,3800,4100,4600,9200,11600],
+  27:[2900,3900,4200,4700,9400,11800],28:[2900,3900,4300,4800,9600,11900],
+  29:[3000,4000,4400,4900,9800,12000],30:[3000,4000,4500,5000,10000,12000],
+};
+
+function normalizeCategory(s) {
+  return (s || '').toString().trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+// Tries an exact match against the canonical key first (fast path), then
+// falls back to keyword matching. The Category column is free-typed by
+// staff, so its exact wording/punctuation varies bike-to-bike — e.g.
+// "Forza 300" instead of "Forza 300CC", no hyphen in "150-155", extra
+// spacing — and an exact-string match alone was silently failing on these,
+// which is why the auto-priced amount was coming back as 0 instead of a
+// real quote.
+function findCategoryIndex(catText) {
+  const norm = normalizeCategory(catText);
+  if (!norm) return -1;
+
+  const exact = CATEGORY_DEFS.findIndex(c => c.key === norm);
+  if (exact !== -1) return exact;
+
+  const has = (s) => norm.indexOf(s) !== -1;
+  if (has('forza')) return 4;
+  if (has('xmax')) return 5;
+  if (has('nmax')) return 3;
+  if (has('125')) return 0;
+  if (has('150') || has('155')) {
+    return has('keyless') ? 2 : 1; // 155CC Keyless vs 155CC Standard Key
+  }
+  return -1;
+}
+
+function priceForCategory(catIndex, months, leftoverDays) {
+  if (catIndex < 0) return null;
+  const monthlyRate = RATES[30][catIndex];
+  if (months === 0) {
+    return RATES[leftoverDays] ? RATES[leftoverDays][catIndex] : null;
+  }
+  const dailyRate = monthlyRate / 30;
+  return Math.round(monthlyRate * months + leftoverDays * dailyRate);
+}
+
+// Quotes the extension period itself (1 calendar month if the checkbox is
+// ticked, otherwise the plain day count) at that bike's category rate.
+// Returns null if the bike's category isn't set or isn't a known rate
+// category (a custom-rate bike), in which case staff enter the amount by
+// hand as before.
+function computeExtendPrice(bikeName, extendMonth, days) {
+  const match = categoryRows.find(cr => bikeNamesMatch(cr.bike, bikeName));
+  const catIndex = findCategoryIndex(match ? match.category : '');
+  if (catIndex < 0) return null;
+
+  let months, leftoverDays;
+  if (extendMonth) {
+    months = 1;
+    leftoverDays = 0;
+  } else {
+    const totalDays = days > 0 ? days : 0;
+    months = Math.floor(totalDays / 30);
+    leftoverDays = totalDays % 30;
+  }
+  return priceForCategory(catIndex, months, leftoverDays);
 }
 
 // Whether a customer row counts as "still rented", per the "situation"
@@ -636,7 +730,12 @@ document.getElementById('listBox').addEventListener('click', (e) => {
     const monthCheckbox = document.getElementById('extendMonthCheckbox-' + rowNumber);
     const extendMonth = !!(monthCheckbox && monthCheckbox.checked);
     const days = daysInput ? parseInt(daysInput.value, 10) : NaN;
-    const amount = amountInput ? parseFloat(amountInput.value) : NaN;
+    const amountRaw = amountInput ? amountInput.value.trim() : '';
+    // A blank amount is treated as 0 rather than rejected — for long
+    // extensions (checkbox, or 30+ days) a 0/blank amount gets auto-priced
+    // below in confirmExtend() as a fallback, in case the live auto-fill
+    // listeners didn't get a chance to run.
+    const amount = amountRaw === '' ? 0 : parseFloat(amountRaw);
     // Days aren't needed when the "Extend 1 month" checkbox is ticked —
     // the checkbox alone determines the new due date in that case.
     if (!extendMonth && (!days || days <= 0)) {
@@ -648,6 +747,49 @@ document.getElementById('listBox').addEventListener('click', (e) => {
       return;
     }
     confirmExtend(rowNumber, days, amount, extendMonth);
+  }
+});
+
+// Auto-fills the "Amount paid" field on the extend form with the price-
+// calculator quote for the extension period, whenever it's a long extension
+// (the "Extend 1 month" checkbox is ticked, or 30+ days is typed in) and
+// staff haven't already entered a real amount themselves. Runs live as
+// they type/tick, so the field is ready by the time they hit Confirm, but
+// they can still overwrite it before confirming.
+function maybeAutofillExtendAmount(rowNumber) {
+  const daysInput = document.getElementById('extendDaysInput-' + rowNumber);
+  const amountInput = document.getElementById('extendAmountInput-' + rowNumber);
+  const monthCheckbox = document.getElementById('extendMonthCheckbox-' + rowNumber);
+  if (!daysInput || !amountInput || !monthCheckbox) return;
+
+  const extendMonth = monthCheckbox.checked;
+  const days = parseInt(daysInput.value, 10);
+  const isLongExtension = extendMonth || (days >= 30);
+  if (!isLongExtension) return;
+
+  const currentAmount = amountInput.value.trim();
+  if (currentAmount !== '' && parseFloat(currentAmount) !== 0) return; // don't clobber a real entry
+
+  const renter = (customerRows || []).find(r => r.rowNumber === rowNumber);
+  if (!renter) return;
+
+  const price = computeExtendPrice(renter.bikeModel, extendMonth, days);
+  if (price != null) {
+    amountInput.value = price;
+  }
+}
+
+document.getElementById('listBox').addEventListener('input', (e) => {
+  const daysEl = e.target.closest('[id^="extendDaysInput-"]');
+  if (daysEl) {
+    maybeAutofillExtendAmount(parseInt(daysEl.id.replace('extendDaysInput-', ''), 10));
+  }
+});
+
+document.getElementById('listBox').addEventListener('change', (e) => {
+  const monthEl = e.target.closest('[id^="extendMonthCheckbox-"]');
+  if (monthEl) {
+    maybeAutofillExtendAmount(parseInt(monthEl.id.replace('extendMonthCheckbox-', ''), 10));
   }
 });
 
@@ -718,6 +860,20 @@ function confirmExtend(rowNumber, daysToExtend, amountPaid, extendMonth) {
       ? addOneCalendarMonth(oldDue)
       : new Date(oldDue.getTime() + daysToExtend * 86400000);
 
+    // Fallback in case the live auto-fill listeners didn't get a chance to
+    // run (e.g. Confirm clicked immediately after ticking the checkbox):
+    // price the extension period from the bike's category rate if nothing
+    // was entered.
+    let finalAmount = amountPaid;
+    if (!finalAmount) {
+      const autoPrice = computeExtendPrice(renter.bikeModel, extendMonth, daysToExtend);
+      if (autoPrice != null) {
+        finalAmount = autoPrice;
+      } else {
+        alert("Couldn't auto-calculate a price for \"" + renter.bikeModel + "\" (no matching category found) — you'll need to enter the total price by hand on the next screen.");
+      }
+    }
+
     savingExtendRowNumber = rowNumber;
     render();
 
@@ -739,7 +895,7 @@ function confirmExtend(rowNumber, daysToExtend, amountPaid, extendMonth) {
           returnDate: toIsoDate(newReturn),
           returnTime: renter.returnTime || '',
           deliverToHotel: renter.deliverToHotel || '',
-          totalPrice: String(amountPaid),
+          totalPrice: String(finalAmount),
           paidBy: renter.paidBy || ''
         });
         window.location.href = 'customers.html?' + params.toString();
