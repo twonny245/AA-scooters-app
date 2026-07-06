@@ -69,14 +69,52 @@ function doPost(e) {
 
     var fromDate = data.rentingDateFrom ? new Date(data.rentingDateFrom + 'T00:00:00') : null;
     var toDate = data.returnDate ? new Date(data.returnDate + 'T00:00:00') : null;
+    var dayCount = null;
     if (fromDate && toDate) {
-      var dayCount = Math.round((toDate - fromDate) / (1000 * 60 * 60 * 24));
+      dayCount = Math.round((toDate - fromDate) / (1000 * 60 * 60 * 24));
       var fillColor = dayCount >= 30 ? '#00ffff' : '#93C47D';
       sheet.getRange(newRow, 2, 1, 3).setBackground(fillColor);
     }
 
+    // Also log this rental as a row on the current month's income sheet
+    // (e.g. "July"). Wrapped so a problem here never breaks customer intake.
+    try {
+      appendMonthlyIncomeRow(ss, data, dayCount);
+    } catch (incomeErr) {
+      // Swallow -- customer record is already saved; the income row is best-effort.
+    }
+
+    // If (and only if) paid in cash, also log it on the "cash" sheet.
+    try {
+      if ((data.paidBy || '').toString().trim().toLowerCase() === 'cash') {
+        appendCashSheetRow(ss, data, dayCount);
+      }
+    } catch (cashErr) {
+      // Swallow -- customer record is already saved; the cash row is best-effort.
+    }
+
+    // If paid by Wise or Revolut, add the amount into that method's
+    // deposit-tracking cell on the current month's sheet (self-locating via
+    // the label in column K), as a running "=X+Y" formula. If the label
+    // can't be verified/found anywhere, nothing is written to column L --
+    // instead a warning is logged and returned in the response, rather than
+    // silently guessing at the wrong cell.
+    var depositWarning = null;
+    try {
+      var paidByLower = (data.paidBy || '').toString().trim().toLowerCase();
+      if (paidByLower === 'wise' || paidByLower === 'revolut') {
+        processDepositForPayment(ss, paidByLower, data.totalPrice);
+      }
+    } catch (depositErr) {
+      depositWarning = depositErr.message;
+      Logger.log('Deposit update warning: ' + depositErr.message);
+    }
+
+    var responsePayload = { success: true };
+    if (depositWarning) responsePayload.warning = depositWarning;
+
     return ContentService
-      .createTextOutput(JSON.stringify({ success: true }))
+      .createTextOutput(JSON.stringify(responsePayload))
       .setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {
@@ -97,6 +135,191 @@ function formatIsoDateToDMY(isoStr) {
   var mo = m[2].length === 1 ? '0' + m[2] : m[2];
   var d = m[3].length === 1 ? '0' + m[3] : m[3];
   return d + '/' + mo + '/' + y;
+}
+
+// ---- Builds the "<bike> rent <N> day(s)" text used both on the monthly
+// income sheet and the cash sheet, so the two stay in the same format. ----
+function buildRentalIncomeText(data, dayCount) {
+  var bikeName = (data.bikeModel || '').toString().trim();
+  var text = bikeName;
+  if (dayCount !== null && dayCount !== undefined && !isNaN(dayCount)) {
+    text += ' rent ' + dayCount + (dayCount === 1 ? ' day' : ' days');
+  } else {
+    text += ' rent';
+  }
+  return text;
+}
+
+// ---- Returns the sheet tab matching the current month's name (e.g.
+// "July"), or null if there isn't one. Shared by anything that logs against
+// the current month's sheet, so the lookup stays in one place. ----
+function getCurrentMonthSheet(ss) {
+  var monthName = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'MMMM'); // e.g. "July"
+  return ss.getSheetByName(monthName);
+}
+
+// ---- Log a new rental as a row on the current month's income sheet (e.g.
+// "July"). Columns: E Date, F Income, G PAX name, H Amount, I paid. Finds
+// the next empty row by looking only at column E (the Date column), since
+// unrelated columns further left/right (e.g. the "expense" block, or notes
+// off to the side) can have data further down and shouldn't shift where a
+// new income row lands. If no sheet matches the current month name, this
+// silently does nothing -- it's not created automatically, since it should
+// already exist as a normal monthly tab. ----
+function appendMonthlyIncomeRow(ss, data, dayCount) {
+  var DATE_COL = 5;   // E
+  var INCOME_COL = 6; // F
+  var NAME_COL = 7;   // G
+  var AMOUNT_COL = 8; // H
+  var PAID_COL = 9;   // I
+
+  var sheet = getCurrentMonthSheet(ss);
+  if (!sheet) return; // No tab for the current month -- nothing to log against.
+
+  var maxRow = sheet.getMaxRows();
+  var dateColValues = sheet.getRange(1, DATE_COL, maxRow, 1).getValues();
+  var lastFilledRow = 1; // Assume row 1 is the header row.
+  for (var i = 0; i < dateColValues.length; i++) {
+    var v = dateColValues[i][0];
+    if (v !== '' && v !== null) lastFilledRow = i + 1;
+  }
+  var targetRow = lastFilledRow + 1;
+
+  var incomeText = buildRentalIncomeText(data, dayCount);
+
+  var paidByRaw = (data.paidBy || '').toString().trim().toLowerCase();
+  var paidDisplay = paidByRaw === 'scan' ? 'QR scan' : paidByRaw;
+
+  var amountValue = data.totalPrice !== '' && data.totalPrice !== undefined && !isNaN(Number(data.totalPrice))
+    ? Number(data.totalPrice)
+    : '';
+
+  sheet.getRange(targetRow, DATE_COL, 1, 5).setValues([[
+    new Date(), incomeText, data.name || '', amountValue, paidDisplay
+  ]]);
+
+  // Match the formatting (currency style, borders, banding) of the row
+  // directly above, so the new row looks consistent with the rest.
+  if (lastFilledRow >= 2) {
+    sheet.getRange(lastFilledRow, DATE_COL, 1, 5)
+      .copyFormatToRange(sheet, DATE_COL, PAID_COL, targetRow, targetRow);
+  }
+}
+
+// ---- Log a new rental as a row on the "cash" sheet, but ONLY when it was
+// paid in cash. Unlike the monthly sheet, "cash" is one running log for the
+// whole year (columns A income date, B income, C amount), so rows are just
+// appended at the very bottom rather than looked up per month. Finds the
+// next empty row via column A only, since column D ("expense"/"Tax" labels)
+// can have its own unrelated entries further down. ----
+function appendCashSheetRow(ss, data, dayCount) {
+  var DATE_COL = 1;   // A
+  var INCOME_COL = 2; // B
+  var AMOUNT_COL = 3; // C
+
+  var sheet = ss.getSheetByName('cash');
+  if (!sheet) return; // No "cash" tab -- nothing to log against.
+
+  var maxRow = sheet.getMaxRows();
+  var dateColValues = sheet.getRange(1, DATE_COL, maxRow, 1).getValues();
+  var lastFilledRow = 1; // Assume row 1 is the header row.
+  for (var i = 0; i < dateColValues.length; i++) {
+    var v = dateColValues[i][0];
+    if (v !== '' && v !== null) lastFilledRow = i + 1;
+  }
+  var targetRow = lastFilledRow + 1;
+
+  var incomeText = buildRentalIncomeText(data, dayCount);
+
+  var amountValue = data.totalPrice !== '' && data.totalPrice !== undefined && !isNaN(Number(data.totalPrice))
+    ? Number(data.totalPrice)
+    : '';
+
+  sheet.getRange(targetRow, DATE_COL, 1, 3).setValues([[
+    new Date(), incomeText, amountValue
+  ]]);
+
+  // Match the formatting (currency style, borders) of the row directly
+  // above, so the new row looks consistent with the rest.
+  if (lastFilledRow >= 2) {
+    sheet.getRange(lastFilledRow, DATE_COL, 1, 3)
+      .copyFormatToRange(sheet, DATE_COL, AMOUNT_COL, targetRow, targetRow);
+  }
+}
+
+// ---- Adds an amount into one of the fixed deposit-tracking cells on the
+// current month's sheet -- L11 "wise(less deposit)" for Wise, L12
+// "revolut(less deposit)" for Revolut. These are fixed reference cells (not
+// something that grows with new rental rows), and the goal is to keep a
+// visible running total as a formula, e.g. "=100+300", rather than just
+// silently replacing the number. If the cell is empty, the formula becomes
+// "=amount". If it already holds a formula, "+amount" is appended to it. If
+// it holds a plain (non-formula) number -- as these cells currently do --
+// that number becomes the first term of a new "=existing+amount" formula,
+// so nothing already there is lost. ----
+function addAmountToDepositCell(sheet, row, col, rawAmount) {
+  var amount = Number(rawAmount);
+  if (rawAmount === '' || rawAmount === null || rawAmount === undefined || isNaN(amount)) return;
+
+  var range = sheet.getRange(row, col);
+  var formula = range.getFormula();
+
+  if (formula && formula.charAt(0) === '=') {
+    range.setFormula(formula + '+' + amount);
+    return;
+  }
+
+  var currentValue = range.getValue();
+  if (currentValue === '' || currentValue === null || isNaN(Number(currentValue))) {
+    range.setFormula('=' + amount);
+  } else {
+    range.setFormula('=' + Number(currentValue) + '+' + amount);
+  }
+}
+
+// ---- Finds the row where a given label (e.g. "wise(less deposit)") lives
+// in a label column (column K). Checks the expected row first; if the label
+// there doesn't match (case/whitespace-insensitive), searches the whole
+// column for it instead, in case the sheet's layout shifted. Returns the
+// row number if found, or null if the label isn't anywhere in the column. ----
+function findDepositRow(sheet, expectedRow, labelCol, expectedLabel) {
+  function norm(s) { return (s || '').toString().trim().toLowerCase(); }
+  var target = norm(expectedLabel);
+
+  var atExpected = norm(sheet.getRange(expectedRow, labelCol).getValue());
+  if (atExpected === target) return expectedRow;
+
+  var maxRow = sheet.getMaxRows();
+  var colValues = sheet.getRange(1, labelCol, maxRow, 1).getValues();
+  for (var i = 0; i < colValues.length; i++) {
+    if (norm(colValues[i][0]) === target) return i + 1;
+  }
+  return null; // Label not found anywhere in the column.
+}
+
+// ---- Entry point used by doPost for Wise/Revolut payments. Verifies the
+// label in column K actually matches before touching column L, self-heals
+// if the row shifted, and throws a clear error (rather than writing to the
+// wrong cell) if the label can't be found anywhere on the sheet. ----
+function processDepositForPayment(ss, paidByLower, rawAmount) {
+  var LABEL_COL = 11;  // K
+  var VALUE_COL = 12;  // L
+
+  var sheet = getCurrentMonthSheet(ss);
+  if (!sheet) {
+    throw new Error('No sheet found for the current month -- could not update the ' + paidByLower + ' deposit total.');
+  }
+
+  var expectedRow = paidByLower === 'wise' ? 11 : 12;
+  var expectedLabel = paidByLower === 'wise' ? 'wise(less deposit)' : 'revolut(less deposit)';
+
+  var row = findDepositRow(sheet, expectedRow, LABEL_COL, expectedLabel);
+  if (row === null) {
+    throw new Error('Could not find a "' + expectedLabel + '" row in column K of the "' +
+      sheet.getName() + '" sheet -- the ' + paidByLower + ' deposit total was NOT updated.');
+  }
+
+  addAmountToDepositCell(sheet, row, VALUE_COL, rawAmount);
 }
 
 // ---- Update one row in the Parts and Oil change tab ----

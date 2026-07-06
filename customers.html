@@ -17,6 +17,7 @@
     --line:#DED4C2;
     --ok:#2F855A;
     --err:#C53030;
+    --warn:#B7791F;
   }
   *{box-sizing:border-box;}
   body{
@@ -187,6 +188,7 @@
   }
   .status.ok{display:block; background:#E8F5EE; color:var(--ok); border:1px solid #BEE3CE;}
   .status.err{display:block; background:#FCEBEB; color:var(--err); border:1px solid #F3C6C6;}
+  .status.warn{display:block; background:#FFF3E6; color:var(--warn); border:1px solid #F3D9B8;}
   .setup{
     background:#FBF6EC;
     border:1px dashed var(--line);
@@ -553,8 +555,13 @@ form.addEventListener('submit', async (e) => {
     });
     const data = await res.json();
     if (data.success) {
-      statusBox.textContent = 'Added — "' + payload.name + '" saved to the sheet.';
-      statusBox.className = 'status ok';
+      if (data.warning) {
+        statusBox.textContent = 'Added — "' + payload.name + '" saved, but: ' + data.warning;
+        statusBox.className = 'status warn';
+      } else {
+        statusBox.textContent = 'Added — "' + payload.name + '" saved to the sheet.';
+        statusBox.className = 'status ok';
+      }
       sessionCount++;
       document.getElementById('sessionCount').textContent = sessionCount;
       form.reset();
