@@ -119,6 +119,26 @@
   .due-badge.due-today{ background:#FDECEC; color:#C0392B; }
   .due-badge.overdue{ background:#C0392B; color:#fff; }
 
+  .bc-actions{ display:flex; gap:8px; margin-top:10px; }
+  .bc-btn{
+    flex:1; padding:9px 10px; border-radius:8px; border:1px solid var(--line);
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:13px;
+    letter-spacing:.03em; text-transform:uppercase; cursor:pointer;
+    background:#fff; color:var(--petrol);
+  }
+  .bc-btn:active{ transform:scale(.98); }
+  .bc-btn:disabled{ opacity:.55; cursor:default; }
+  .bc-btn.return-btn{ background:var(--petrol); color:#fff; border-color:var(--petrol); }
+  .bc-btn.extend-btn{ background:#fff; color:var(--muted); }
+  .bc-btn.confirm-return{ background:var(--cone); color:#fff; border-color:var(--cone); }
+  .bc-btn.cancel-return{ background:#fff; color:var(--muted); }
+
+  .bc-actions-picker{ flex-wrap:wrap; }
+  .return-date-input{
+    flex:1 1 100%; padding:9px 10px; border:1px solid var(--line); border-radius:8px;
+    font-size:14px; font-family:'Inter',sans-serif; background:#fff; color:var(--ink);
+  }
+
   .empty-hint{ font-size:13px; color:#8A948F; padding:14px 2px; text-align:center; }
 </style>
 </head>
@@ -180,6 +200,7 @@ function loadData() {
       if (!partsResult.success) throw new Error(partsResult.error || 'Could not load bikes');
       const bikeHeader = partsResult.headers[0];
       bikeNames = partsResult.rows
+        .filter(r => !r.__struck) // struck-through in Parts & Oil = sold, don't show it
         .map(r => (r[bikeHeader] || '').toString().trim())
         .filter(Boolean)
         .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
@@ -352,6 +373,39 @@ function highlight(value, query) {
   return out;
 }
 
+let openReturnRowNumber = null;   // rowNumber whose inline date-picker is currently showing
+let savingReturnRowNumber = null; // rowNumber currently being saved (shows "Saving…")
+
+function todayIso() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function renterActionsHtml(renter) {
+  const rowNumber = renter.rowNumber;
+  const isSaving = savingReturnRowNumber === rowNumber;
+
+  if (openReturnRowNumber === rowNumber) {
+    return `
+      <div class="bc-actions bc-actions-picker">
+        <input type="date" class="return-date-input" id="returnDateInput-${rowNumber}" value="${todayIso()}" ${isSaving ? 'disabled' : ''}>
+        <button class="bc-btn confirm-return" data-row="${rowNumber}" ${isSaving ? 'disabled' : ''}>${isSaving ? 'Saving…' : 'Confirm'}</button>
+        <button class="bc-btn cancel-return" data-row="${rowNumber}" ${isSaving ? 'disabled' : ''}>Cancel</button>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="bc-actions">
+      <button class="bc-btn return-btn" data-row="${rowNumber}">Return</button>
+      <button class="bc-btn extend-btn" disabled title="Coming soon">Extend</button>
+    </div>
+  `;
+}
+
 function bikeCardHtml(name, renter, query) {
   const rented = !!renter;
   const cls = rented ? 'rented' : 'not-rented';
@@ -369,6 +423,8 @@ function bikeCardHtml(name, renter, query) {
     ? `<b>Due back:</b> ${formatDateDisplay(renter.returnDate)} ${dueBadge}`
     : `Not rented`;
 
+  const actions = rented ? renterActionsHtml(renter) : '';
+
   return `
     <div class="bike-card ${cls}">
       <div class="bc-top">
@@ -377,6 +433,7 @@ function bikeCardHtml(name, renter, query) {
       </div>
       ${renterLine}
       <div class="bc-details">${details}</div>
+      ${actions}
     </div>
   `;
 }
@@ -494,6 +551,59 @@ searchInput.addEventListener('keydown', (e) => {
 document.addEventListener('click', (e) => {
   if (!searchInput.contains(e.target) && !acList.contains(e.target)) closeAc();
 });
+
+/* ---------------- Return button + inline date-picker ---------------- */
+
+document.getElementById('listBox').addEventListener('click', (e) => {
+  const returnBtn = e.target.closest('.return-btn');
+  if (returnBtn) {
+    openReturnRowNumber = parseInt(returnBtn.dataset.row, 10);
+    render();
+    return;
+  }
+
+  const cancelBtn = e.target.closest('.cancel-return');
+  if (cancelBtn) {
+    openReturnRowNumber = null;
+    render();
+    return;
+  }
+
+  const confirmBtn = e.target.closest('.confirm-return');
+  if (confirmBtn) {
+    const rowNumber = parseInt(confirmBtn.dataset.row, 10);
+    const input = document.getElementById('returnDateInput-' + rowNumber);
+    const isoDate = input ? input.value : '';
+    if (!isoDate) {
+      alert('Pick a date first.');
+      return;
+    }
+    confirmReturn(rowNumber, isoDate);
+  }
+});
+
+function confirmReturn(rowNumber, isoDate) {
+  savingReturnRowNumber = rowNumber;
+  render();
+
+  fetch(scriptUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action: 'markReturned', rowNumber: rowNumber, returnDate: isoDate })
+  })
+    .then(res => res.json())
+    .then(result => {
+      if (!result.success) throw new Error(result.error || 'Could not save.');
+      openReturnRowNumber = null;
+      savingReturnRowNumber = null;
+      return loadData();
+    })
+    .catch(err => {
+      savingReturnRowNumber = null;
+      render();
+      alert('Could not mark as returned: ' + err.message);
+    });
+}
 
 loadData();
 </script>

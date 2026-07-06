@@ -29,6 +29,9 @@ function doPost(e) {
     if (data.action === 'deletePhoto') {
       return deleteBikePhoto(data);
     }
+    if (data.action === 'markReturned') {
+      return markBikeReturned(data);
+    }
 
     // ---- Customer-intake behavior ----
     var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -132,6 +135,53 @@ function updateBikeRow(data) {
         sheet.getRange(targetRow, col).setValue(fields[headerName]);
       }
     });
+
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: true }))
+      .setMimeType(ContentService.MimeType.JSON);
+
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: false, error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+// ---- Update one row in the customer tab: called from the "Return" button
+// on the Bikes Status page. Sets the return date to the picked date, makes
+// sure that date's font color is black (it's sometimes red from earlier
+// conditional/manual formatting), and flips "situation" to "Returned". ----
+function markBikeReturned(data) {
+  try {
+    var rowNumber = parseInt(data.rowNumber, 10);
+    if (!rowNumber || rowNumber < 2) {
+      throw new Error('Invalid row number.');
+    }
+    if (!data.returnDate) {
+      throw new Error('No return date given.');
+    }
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName('customer');
+    if (!sheet) {
+      throw new Error('Sheet named "customer" not found in this spreadsheet.');
+    }
+
+    var CUSTOMER_RETURN_DATE_COL = 9;  // I: Return date
+    var CUSTOMER_SITUATION_COL = 14;   // N: situation
+
+    var m = String(data.returnDate).trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (!m) {
+      throw new Error('Return date must be in yyyy-MM-dd format.');
+    }
+    var y = parseInt(m[1], 10), mo = parseInt(m[2], 10) - 1, d = parseInt(m[3], 10);
+    var dateValue = new Date(y, mo, d);
+
+    var dateCell = sheet.getRange(rowNumber, CUSTOMER_RETURN_DATE_COL);
+    dateCell.setValue(dateValue);
+    dateCell.setFontColor('#000000');
+
+    sheet.getRange(rowNumber, CUSTOMER_SITUATION_COL).setValue('Returned');
 
     return ContentService
       .createTextOutput(JSON.stringify({ success: true }))
@@ -298,11 +348,12 @@ function doGet(e) {
       return val !== undefined && val !== null ? String(val) : '';
     }
 
-    var rows = values.slice(HEADER_ROWS).map(function(row) {
+    var rows = values.slice(HEADER_ROWS).map(function(row, i) {
       var obj = {};
-      keys.forEach(function(k, i) {
-        obj[k] = cellToString(k, row[i]);
+      keys.forEach(function(k, ki) {
+        obj[k] = cellToString(k, row[ki]);
       });
+      obj.rowNumber = HEADER_ROWS + i + 1; // 1-indexed sheet row this record lives on
       return obj;
     }).filter(function(r) { return r.name !== ''; });
 
