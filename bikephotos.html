@@ -180,44 +180,6 @@
   .lightbox-close:active{ background:rgba(255,255,255,.3); }
 
   .hidden{ display:none; }
-
-  .coverage-btn{
-    width:100%; padding:12px; border:1px solid var(--line); border-radius:10px;
-    background:var(--card); color:var(--petrol);
-    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:14px;
-    letter-spacing:.03em; text-transform:uppercase; cursor:pointer; margin-top:10px;
-  }
-  .coverage-btn:active{ transform:scale(.98); }
-  .coverage-btn:disabled{ opacity:.6; }
-
-  .coverage-panel{ margin-top:14px; }
-  .coverage-summary{
-    display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px;
-  }
-  .coverage-summary .stat{
-    background:var(--card); border:1px solid var(--line); border-radius:10px;
-    padding:10px 12px;
-  }
-  .coverage-summary .stat .n{
-    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:22px;
-  }
-  .coverage-summary .stat .l{ font-size:11px; color:var(--muted); margin-top:2px; }
-  .coverage-summary .stat.bad .n{ color:var(--err); }
-  .coverage-summary .stat.ok .n{ color:var(--ok); }
-
-  .coverage-section{ margin-bottom:16px; }
-  .coverage-section h3{
-    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:15px;
-    color:var(--petrol); margin:0 0 8px;
-  }
-  .coverage-row{
-    display:flex; align-items:center; justify-content:space-between; gap:8px;
-    background:var(--card); border:1px solid var(--line); border-left:4px solid var(--line);
-    border-radius:8px; padding:9px 12px; margin-bottom:6px; font-size:13.5px; cursor:pointer;
-  }
-  .coverage-row.missing{ border-left-color:var(--err); }
-  .coverage-row.covered{ border-left-color:var(--ok); }
-  .coverage-row .count{ font-size:12px; color:var(--muted); white-space:nowrap; }
 </style>
 </head>
 <body>
@@ -251,9 +213,6 @@
       <div class="ac-list" id="bikeAcList"></div>
     </div>
     <div class="load-status" id="loadStatus">Loading bikes…</div>
-    <button type="button" class="coverage-btn" id="coverageBtn">Check photo coverage</button>
-    <div class="load-status" id="coverageLoadStatus"></div>
-    <div class="coverage-panel hidden" id="coveragePanel"></div>
   </div>
 
   <div class="bike-panel hidden" id="bikePanel">
@@ -311,8 +270,6 @@ const progressCount = document.getElementById('progressCount');
 const lightbox = document.getElementById('lightbox');
 const lightboxImg = document.getElementById('lightboxImg');
 const lightboxClose = document.getElementById('lightboxClose');
-const coverageBtn = document.getElementById('coverageBtn');
-const coveragePanel = document.getElementById('coveragePanel');
 
 function openLightbox(url) {
   lightboxImg.src = url;
@@ -363,10 +320,6 @@ function loadBikeNames() {
       if (!data.success) throw new Error(data.error || 'Could not load bikes');
       const bikeHeader = data.headers[0];
       bikeNames = data.rows
-        // Struck-through rows are bikes already marked sold — they no
-        // longer need photos, so they're excluded from both search and
-        // the photo coverage check entirely.
-        .filter(r => !r.__struck)
         .map(r => (r[bikeHeader] || '').toString().trim())
         .filter(Boolean)
         .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
@@ -586,129 +539,6 @@ photoInput.addEventListener('change', async () => {
     gallery.innerHTML = '<div class="gallery-empty">No photos yet for this bike.</div>';
   }
 });
-
-// Same fuzzy-match rules as bikes.html / bike-name-audit.html / Code.gs, so
-// a photo folder named slightly differently from the current bike name
-// (e.g. an old model name) still counts as a match rather than showing as
-// both "missing" and an orphan folder.
-function normalizeBikeName(s) {
-  return (s || '').toString()
-    .toLowerCase()
-    .replace(/\([^)]*\)/g, ' ')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-    .replace(/\s+/g, ' ');
-}
-const DISTINGUISHING_SUFFIXES = new Set([
-  'one','two','three','four','five','six','seven','eight','nine','ten',
-  'i','ii','iii','iv','v','vi','vii','viii','ix','x',
-  '1','2','3','4','5','6','7','8','9','10'
-]);
-function bikeNamesMatch(a, b) {
-  const na = normalizeBikeName(a);
-  const nb = normalizeBikeName(b);
-  if (!na || !nb) return false;
-  if (na === nb) return true;
-  const ta = na.split(' ');
-  const tb = nb.split(' ');
-  const shorter = ta.length <= tb.length ? ta : tb;
-  const longer = ta.length <= tb.length ? tb : ta;
-  const isPrefix = shorter.every((tok, i) => tok === longer[i]);
-  if (isPrefix) {
-    const extra = longer.slice(shorter.length);
-    if (extra.some(t => DISTINGUISHING_SUFFIXES.has(t))) return false;
-    return true;
-  }
-  return na.includes(nb) || nb.includes(na);
-}
-
-function coverageRowHtml(cls, name, countLabel) {
-  return `<div class="coverage-row ${cls}" data-name="${name.replace(/"/g, '&quot;')}">
-    <span>${name}</span><span class="count">${countLabel}</span>
-  </div>`;
-}
-
-function setCoverageStatus(msg) {
-  const el = document.getElementById('coverageLoadStatus');
-  if (!msg) { el.classList.remove('show'); el.textContent = ''; return; }
-  el.textContent = msg;
-  el.classList.add('show');
-}
-
-function runCoverageCheck() {
-  coverageBtn.disabled = true;
-  setCoverageStatus('Checking bikes and photo folders…');
-  coveragePanel.classList.add('hidden');
-
-  Promise.all([
-    bikeNames.length ? Promise.resolve(bikeNames) : loadBikeNames().then(() => bikeNames),
-    fetch(scriptUrl + '?action=photoFolders').then(r => r.json())
-  ]).then(([names, folderRes]) => {
-    if (!folderRes.success) throw new Error(folderRes.error || 'Could not load photo folders');
-    setCoverageStatus(null);
-
-    const folders = folderRes.folders || [];
-
-    const missing = [];
-    const covered = [];
-    names.forEach(name => {
-      const match = folders.find(f => bikeNamesMatch(f.name, name));
-      if (!match || match.count === 0) {
-        missing.push(name);
-      } else {
-        covered.push({ name, count: match.count });
-      }
-    });
-
-    // Folders that exist in Drive but don't match any current bike name —
-    // worth a look, could be an old/renamed bike or a typo'd folder.
-    const orphanFolders = folders.filter(f => !names.some(n => bikeNamesMatch(f.name, n)));
-
-    const html = [];
-    html.push(`<div class="coverage-summary">
-      <div class="stat bad"><div class="n">${missing.length}</div><div class="l">Bikes needing photos</div></div>
-      <div class="stat ok"><div class="n">${covered.length}</div><div class="l">Bikes with photos</div></div>
-    </div>`);
-
-    html.push(`<div class="coverage-section"><h3>Needs photos</h3>`);
-    if (missing.length) {
-      missing.forEach(name => html.push(coverageRowHtml('missing', name, 'Add photos →')));
-    } else {
-      html.push(`<div class="empty-hint">None — every bike has at least one photo.</div>`);
-    }
-    html.push(`</div>`);
-
-    html.push(`<div class="coverage-section"><h3>Already has photos</h3>`);
-    if (covered.length) {
-      covered
-        .sort((a, b) => a.count - b.count)
-        .forEach(c => html.push(coverageRowHtml('covered', c.name, c.count + (c.count === 1 ? ' photo' : ' photos'))));
-    } else {
-      html.push(`<div class="empty-hint">None yet.</div>`);
-    }
-    html.push(`</div>`);
-
-    if (orphanFolders.length) {
-      html.push(`<div class="coverage-section"><h3>Photo folders not matching a current bike</h3>`);
-      orphanFolders.forEach(f => html.push(coverageRowHtml('covered', f.name, f.count + (f.count === 1 ? ' photo' : ' photos'))));
-      html.push(`</div>`);
-    }
-
-    coveragePanel.innerHTML = html.join('');
-    coveragePanel.classList.remove('hidden');
-
-    // Tapping any row jumps straight to that bike's upload/gallery view.
-    coveragePanel.querySelectorAll('.coverage-row').forEach(row => {
-      row.addEventListener('click', () => selectBike(row.getAttribute('data-name')));
-    });
-  }).catch(err => {
-    setCoverageStatus('Could not check coverage: ' + err.message);
-  }).finally(() => {
-    coverageBtn.disabled = false;
-  });
-}
-
-coverageBtn.addEventListener('click', runCoverageCheck);
 
 loadBikeNames();
 </script>

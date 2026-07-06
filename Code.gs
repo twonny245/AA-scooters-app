@@ -29,15 +29,6 @@ function doPost(e) {
     if (data.action === 'deletePhoto') {
       return deleteBikePhoto(data);
     }
-    if (data.action === 'markReturned') {
-      return markBikeReturned(data);
-    }
-    if (data.action === 'extendBike') {
-      return extendBikeRow(data);
-    }
-    if (data.action === 'closeBikeForExtend') {
-      return closeBikeForExtend(data);
-    }
 
     // ---- Customer-intake behavior ----
     var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -141,162 +132,6 @@ function updateBikeRow(data) {
         sheet.getRange(targetRow, col).setValue(fields[headerName]);
       }
     });
-
-    return ContentService
-      .createTextOutput(JSON.stringify({ success: true }))
-      .setMimeType(ContentService.MimeType.JSON);
-
-  } catch (err) {
-    return ContentService
-      .createTextOutput(JSON.stringify({ success: false, error: err.message }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-}
-
-// ---- Update one row in the customer tab: called from the "Return" button
-// on the Bikes Status page. Sets the return date to the picked date, makes
-// sure that date's font color is black (it's sometimes red from earlier
-// conditional/manual formatting), and flips "situation" to "Returned". ----
-function markBikeReturned(data) {
-  try {
-    var rowNumber = parseInt(data.rowNumber, 10);
-    if (!rowNumber || rowNumber < 2) {
-      throw new Error('Invalid row number.');
-    }
-    if (!data.returnDate) {
-      throw new Error('No return date given.');
-    }
-
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getSheetByName('customer');
-    if (!sheet) {
-      throw new Error('Sheet named "customer" not found in this spreadsheet.');
-    }
-
-    var CUSTOMER_RETURN_DATE_COL = 9;  // I: Return date
-    var CUSTOMER_RETURN_TIME_COL = 10; // J: Return time
-    var CUSTOMER_SITUATION_COL = 14;   // N: situation
-
-    var m = String(data.returnDate).trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-    if (!m) {
-      throw new Error('Return date must be in yyyy-MM-dd format.');
-    }
-    var y = parseInt(m[1], 10), mo = parseInt(m[2], 10) - 1, d = parseInt(m[3], 10);
-    var dateValue = new Date(y, mo, d);
-
-    var dateCell = sheet.getRange(rowNumber, CUSTOMER_RETURN_DATE_COL);
-    dateCell.setValue(dateValue);
-    dateCell.setFontColor('#000000');
-
-    // The return time cell is often left red by the same earlier
-    // conditional/manual formatting as the return date, so it's normalized
-    // to black here too, not just the date.
-    sheet.getRange(rowNumber, CUSTOMER_RETURN_TIME_COL).setFontColor('#000000');
-
-    sheet.getRange(rowNumber, CUSTOMER_SITUATION_COL).setValue('Returned');
-
-    return ContentService
-      .createTextOutput(JSON.stringify({ success: true }))
-      .setMimeType(ContentService.MimeType.JSON);
-
-  } catch (err) {
-    return ContentService
-      .createTextOutput(JSON.stringify({ success: false, error: err.message }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-}
-
-// ---- Update one row in the customer tab: called from the "Extend" flow
-// on the Bikes Status page for SHORT extensions only (under 30 days, and
-// the "Extend 1 month" checkbox not ticked). Adds the given number of days
-// onto whatever return date is currently in the sheet, and appends the
-// newly paid amount onto the total price as a "=oldValue+amountPaid"
-// formula. Longer extensions (1 month, or 30+ days) instead go through
-// closeBikeForExtend() and a brand-new customer-intake row — see the
-// "Extend" button's client-side logic in bikes.html. ----
-function extendBikeRow(data) {
-  try {
-    var rowNumber = parseInt(data.rowNumber, 10);
-    if (!rowNumber || rowNumber < 2) {
-      throw new Error('Invalid row number.');
-    }
-    var daysToExtend = parseInt(data.daysToExtend, 10);
-    if (!daysToExtend || daysToExtend <= 0) {
-      throw new Error('Days to extend must be a positive number.');
-    }
-    var amountPaid = parseFloat(data.amountPaid);
-    if (isNaN(amountPaid) || amountPaid < 0) {
-      throw new Error('Amount paid must be a number.');
-    }
-
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getSheetByName('customer');
-    if (!sheet) {
-      throw new Error('Sheet named "customer" not found in this spreadsheet.');
-    }
-
-    var CUSTOMER_RETURN_DATE_COL = 9;  // I: Return date
-    var CUSTOMER_TOTAL_PRICE_COL = 12; // L: total price
-
-    var dateCell = sheet.getRange(rowNumber, CUSTOMER_RETURN_DATE_COL);
-    var currentDateValue = dateCell.getValue();
-    var currentDate = currentDateValue instanceof Date ? new Date(currentDateValue.getTime()) : null;
-    if (!currentDate) {
-      // Fall back to parsing a dd/MM/yyyy string, in case the cell isn't a real Date.
-      var m = String(currentDateValue).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-      if (!m) {
-        throw new Error('Could not read the current return date to extend from.');
-      }
-      currentDate = new Date(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10));
-    }
-    currentDate.setDate(currentDate.getDate() + daysToExtend);
-    dateCell.setValue(currentDate);
-
-    var priceCell = sheet.getRange(rowNumber, CUSTOMER_TOTAL_PRICE_COL);
-    var currentPrice = Number(priceCell.getValue()) || 0;
-    priceCell.setFormula('=' + currentPrice + '+' + amountPaid);
-
-    return ContentService
-      .createTextOutput(JSON.stringify({ success: true }))
-      .setMimeType(ContentService.MimeType.JSON);
-
-  } catch (err) {
-    return ContentService
-      .createTextOutput(JSON.stringify({ success: false, error: err.message }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-}
-
-// ---- Update one row in the customer tab: called from the "Extend" flow
-// on the Bikes Status page when the extension is long (1-month checkbox
-// ticked, or 30+ days typed in). Rather than pushing the due date on this
-// row, that flow closes this booking out — using its current due date,
-// left untouched, as the point it ended — and starts a brand-new rental
-// record for the extension period instead. This just flips "situation" to
-// "Returned" and normalizes the return date's and return time's font color
-// (they're sometimes red from earlier conditional/manual formatting, same
-// fix markBikeReturned applies); it deliberately does NOT change the
-// return date's value, unlike markBikeReturned(). ----
-function closeBikeForExtend(data) {
-  try {
-    var rowNumber = parseInt(data.rowNumber, 10);
-    if (!rowNumber || rowNumber < 2) {
-      throw new Error('Invalid row number.');
-    }
-
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getSheetByName('customer');
-    if (!sheet) {
-      throw new Error('Sheet named "customer" not found in this spreadsheet.');
-    }
-
-    var CUSTOMER_RETURN_DATE_COL = 9;  // I: Return date
-    var CUSTOMER_RETURN_TIME_COL = 10; // J: Return time
-    var CUSTOMER_SITUATION_COL = 14;   // N: situation
-
-    sheet.getRange(rowNumber, CUSTOMER_RETURN_DATE_COL).setFontColor('#000000');
-    sheet.getRange(rowNumber, CUSTOMER_RETURN_TIME_COL).setFontColor('#000000');
-    sheet.getRange(rowNumber, CUSTOMER_SITUATION_COL).setValue('Returned');
 
     return ContentService
       .createTextOutput(JSON.stringify({ success: true }))
@@ -417,35 +252,6 @@ function getBikePhotos(bikeName) {
   }
 }
 
-// ---- doGet: action = 'photoFolders' ----
-// Returns { success, folders: [{name, count}] } — every subfolder under
-// PHOTOS_ROOT_FOLDER_ID (one per bike that's ever had a photo uploaded)
-// with how many files are inside. Lets a page check photo coverage across
-// every bike in one round trip instead of one bikePhotos call per bike.
-function getPhotoFolders() {
-  try {
-    var root = DriveApp.getFolderById(PHOTOS_ROOT_FOLDER_ID);
-    var folders = root.getFolders();
-    var result = [];
-    while (folders.hasNext()) {
-      var folder = folders.next();
-      var count = 0;
-      var files = folder.getFiles();
-      while (files.hasNext()) { files.next(); count++; }
-      result.push({ name: folder.getName(), count: count });
-    }
-
-    return ContentService
-      .createTextOutput(JSON.stringify({ success: true, folders: result }))
-      .setMimeType(ContentService.MimeType.JSON);
-
-  } catch (err) {
-    return ContentService
-      .createTextOutput(JSON.stringify({ success: false, error: err.message }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-}
-
 function columnLetter(col) {
   var letter = '';
   while (col > 0) {
@@ -467,9 +273,6 @@ function doGet(e) {
     }
     if (e.parameter.action === 'bikePhotos') {
       return getBikePhotos(e.parameter.bike);
-    }
-    if (e.parameter.action === 'photoFolders') {
-      return getPhotoFolders();
     }
 
     // ---- Customer-search behavior ----
@@ -495,12 +298,11 @@ function doGet(e) {
       return val !== undefined && val !== null ? String(val) : '';
     }
 
-    var rows = values.slice(HEADER_ROWS).map(function(row, i) {
+    var rows = values.slice(HEADER_ROWS).map(function(row) {
       var obj = {};
-      keys.forEach(function(k, ki) {
-        obj[k] = cellToString(k, row[ki]);
+      keys.forEach(function(k, i) {
+        obj[k] = cellToString(k, row[i]);
       });
-      obj.rowNumber = HEADER_ROWS + i + 1; // 1-indexed sheet row this record lives on
       return obj;
     }).filter(function(r) { return r.name !== ''; });
 
