@@ -64,6 +64,8 @@
     background:var(--cone); display:inline-block; flex-shrink:0;
   }
 
+  .pick-hint{ font-size:12px; color:var(--muted); margin:-4px 0 12px; line-height:1.4; }
+
   .search-wrap{ position:relative; margin-bottom:6px; }
   .search-wrap input{
     width:100%; padding:12px 14px; border:1px solid var(--line); border-radius:10px;
@@ -103,6 +105,7 @@
     font-family:'Inter',sans-serif; width:100%;
   }
   .bike-pick:hover{ border-color:var(--petrol-light); }
+  .bike-pick.selected{ border-left-color:var(--cone); background:#FFF3EC; }
   .bike-pick .bp-name{
     font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:16px; color:var(--petrol);
   }
@@ -110,8 +113,12 @@
     font-size:11.5px; color:var(--muted); margin-top:3px;
   }
   .bike-pick .bp-arrow{ color:var(--cone); font-size:18px; font-weight:700; flex-shrink:0; }
+  .bike-pick.selected .bp-arrow{ color:var(--ok); }
 
   .empty-hint{ font-size:13px; color:#8A948F; padding:14px 2px; text-align:center; }
+
+  .continue-bar{ margin-top:14px; }
+  .continue-bar.hidden{ display:none; }
 
   .selected-head{
     display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;
@@ -122,8 +129,24 @@
     font-family:'Inter',sans-serif; font-size:12.5px; font-weight:500;
     cursor:pointer; padding:0;
   }
+
+  .sel-bike-row{
+    background:#FBFAF7; border:1px solid var(--line); border-radius:10px;
+    padding:12px 14px; margin-bottom:10px;
+  }
+  .sel-bike-top{
+    display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:6px;
+  }
+  .sel-bike-name{
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:15.5px; color:var(--petrol);
+  }
+  .remove-bike{
+    background:none; border:none; color:var(--err); text-decoration:underline;
+    font-family:'Inter',sans-serif; font-size:12px; font-weight:500; cursor:pointer; padding:0; flex-shrink:0;
+  }
+
   .selected-cat{
-    font-size:12.5px; color:var(--petrol); margin:2px 0 14px;
+    font-size:12.5px; color:var(--petrol); margin:2px 0 0;
     background:#EEF5F2; border:1px solid #D8E8E1; border-radius:7px;
     padding:5px 9px; display:inline-block;
   }
@@ -134,7 +157,7 @@
   label.f{
     display:block; font-size:12.5px; font-weight:500; color:var(--muted); margin:0 0 6px;
   }
-  .date-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px; }
+  .date-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px; }
   input[type="date"], input[type="number"]{
     width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:9px;
     font-size:14.5px; font-family:'Inter',sans-serif; background:#FBFAF7; color:var(--ink);
@@ -143,9 +166,14 @@
     outline:none; border-color:var(--petrol-light); background:#fff;
   }
 
+  .or-divider{
+    text-align:center; font-size:11px; color:#9AA6A1; margin:2px 0 10px;
+    text-transform:uppercase; letter-spacing:.08em;
+  }
+
   .duration-pill{
     background:#FBF6EC; border:1px dashed var(--line); border-radius:8px;
-    padding:9px 14px; margin-bottom:14px; display:none;
+    padding:9px 14px; margin:14px 0; display:none;
     justify-content:space-between; align-items:center;
   }
   .duration-pill.show{ display:flex; }
@@ -155,8 +183,7 @@
   }
   .duration-pill span:last-child{ color:var(--petrol); font-size:14px; font-weight:700; }
 
-  .custom-rate-box{ margin-bottom:14px; display:none; }
-  .custom-rate-box.show{ display:block; }
+  .custom-rate-box{ margin-top:10px; }
   .custom-rate-box .rate-input-wrap{ position:relative; }
   .custom-rate-box .currency-prefix{
     position:absolute; left:12px; top:50%; transform:translateY(-50%);
@@ -174,8 +201,6 @@
   button.btn:active{ transform:scale(.98); }
   button.btn:disabled{ background:#C9B9A8; cursor:not-allowed; }
 
-  .result-card{ display:none; }
-  .result-card.show{ display:block; }
   .result-label{
     font-family:'Barlow Condensed',sans-serif; font-size:12px; letter-spacing:.08em;
     text-transform:uppercase; color:#7A8A86; margin-bottom:4px;
@@ -190,17 +215,16 @@
   }
   .result-row:last-child{ border-bottom:none; }
   .result-row .key{ color:var(--muted); }
-  .result-row .val{ color:var(--ink); font-weight:600; }
+  .result-row .val{ color:var(--ink); font-weight:600; text-align:right; }
 
   .status{ font-size:12.5px; margin-top:10px; }
   .status.err{ color:var(--err); }
   .status.ok{ color:var(--ok); }
 
-  .reply-box{ margin-top:16px; padding-top:14px; border-top:1px solid var(--line); }
   .reply-box textarea{
     width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:9px;
     font-size:14px; font-family:'Inter',sans-serif; background:#FBFAF7; color:var(--ink);
-    resize:vertical; margin-bottom:10px; line-height:1.5; min-height:140px;
+    resize:vertical; margin-bottom:10px; line-height:1.5; min-height:160px;
   }
   .reply-box textarea:focus{ outline:none; border-color:var(--petrol-light); background:#fff; }
   button.copy-btn{ background:var(--petrol); }
@@ -230,31 +254,35 @@
 
 <div class="page-head">
   <h1>Available Bikes</h1>
-  <div class="sub">Pick a free bike, set the dates, get the price</div>
+  <div class="sub">Pick one or more free bikes, set the dates, get prices for all of them</div>
 </div>
 
 <main>
-  <!-- STEP 1: pick a bike that isn't currently rented -->
+  <!-- STEP 1: pick one or more bikes that aren't currently rented -->
   <div id="pickSection">
     <div class="card">
       <h2>Not rented right now</h2>
+      <div class="pick-hint">Tap to select as many bikes as you like — e.g. one per category — to quote them all at once and give the customer a few options.</div>
       <div class="search-wrap">
         <input type="text" id="bikeSearch" placeholder="Search available bikes… e.g. GT, Aerox" autocomplete="off">
       </div>
       <div class="load-status" id="loadStatus">Loading bikes…</div>
       <div class="results-count" id="resultsCount"></div>
       <div class="bike-list" id="bikeList"></div>
+      <div class="continue-bar hidden" id="continueBar">
+        <button class="btn" id="continueBtn" type="button">Continue with <span id="selCount">0</span> bike<span id="selCountPlural">s</span></button>
+      </div>
     </div>
   </div>
 
-  <!-- STEP 2: dates + price, once a bike is picked -->
+  <!-- STEP 2: dates + price, once at least one bike is picked -->
   <div id="quoteSection" class="hidden">
     <div class="card">
       <div class="selected-head">
-        <h2 id="selectedBikeName">Bike</h2>
-        <button type="button" class="change-bike" id="changeBikeBtn">Change bike</button>
+        <h2>Selected bikes</h2>
+        <button type="button" class="change-bike" id="changeBikeBtn">Edit bikes</button>
       </div>
-      <div id="selectedCatBox"></div>
+      <div id="selectedBikesList"></div>
 
       <label class="f">Rental dates</label>
       <div class="date-grid">
@@ -268,33 +296,22 @@
         </div>
       </div>
 
+      <div class="or-divider">— or —</div>
+      <label class="f" for="daysInput">Number of days</label>
+      <input type="number" id="daysInput" min="1" step="1" inputmode="numeric" placeholder="e.g. 12">
+
       <div class="duration-pill" id="durationPill">
         <span>Rental duration</span>
         <span id="durationText"></span>
-      </div>
-
-      <div class="custom-rate-box" id="customRateBox">
-        <label class="f" for="customRateInput">Custom monthly rate</label>
-        <div class="rate-input-wrap">
-          <span class="currency-prefix">฿</span>
-          <input type="number" id="customRateInput" min="1" step="1" inputmode="numeric" placeholder="e.g. 3500">
-        </div>
-        <div class="rate-hint">This bike's category didn't match a known rate — enter a monthly rate to price it. Daily rate is this ÷ 30, scaled to the rental length.</div>
       </div>
 
       <button class="btn" id="calcBtn" type="button" disabled>Calculate Price</button>
       <div class="status err" id="calcStatus"></div>
     </div>
 
-    <div class="card result-card" id="resultCard">
-      <div class="result-label">Total Rental Cost</div>
-      <div class="result-price" id="resultPrice"></div>
-      <div class="result-row"><span class="key">Bike</span><span class="val" id="rBike"></span></div>
-      <div class="result-row"><span class="key">From</span><span class="val" id="rFrom"></span></div>
-      <div class="result-row"><span class="key">To</span><span class="val" id="rTo"></span></div>
-      <div class="result-row"><span class="key">Duration</span><span class="val" id="rDays"></span></div>
-      <div class="result-row"><span class="key">Per day avg</span><span class="val" id="rAvg"></span></div>
+    <div id="resultsContainer"></div>
 
+    <div class="card" id="replyCard" style="display:none;">
       <div class="reply-box">
         <label class="f" for="replyText">Reply message</label>
         <textarea id="replyText" readonly rows="7"></textarea>
@@ -352,10 +369,9 @@ function findCategoryIndex(catText) {
 // ---------- state ----------
 let bikeNames = [];       // all bike names, alphabetically sorted
 let bikeCategory = {};    // bikeName -> raw Category text from the sheet
-let bikeDetails = {};     // bikeName -> { make, model, cc, key } from the Bike Tax tab
+let bikeDetails = {};     // bikeName -> { make, model, cc, key, deposit, box } from the Bike Tax tab
 let customerRows = null;
-let selectedBike = null;
-let selectedCatIndex = -1; // index into CATEGORY_DEFS / RATES columns, or -1 if unmatched
+let selectedBikeSet = new Set(); // names of bikes picked for a quote
 
 function setLoadStatus(msg) {
   const el = document.getElementById('loadStatus');
@@ -487,6 +503,7 @@ function highlight(value, query) {
   return out;
 }
 
+// ---------- STEP 1: multi-select list ----------
 function renderList() {
   const listBox = document.getElementById('bikeList');
   const countEl = document.getElementById('resultsCount');
@@ -542,13 +559,14 @@ function renderList() {
     const items = sec.bikes.map(name => {
       const cat = bikeCategory[name];
       const catLabel = cat ? cat : 'No category set';
+      const isSel = selectedBikeSet.has(name);
       return `
-        <button type="button" class="bike-pick" data-name="${name.replace(/"/g,'&quot;')}">
+        <button type="button" class="bike-pick${isSel ? ' selected' : ''}" data-name="${name.replace(/"/g,'&quot;')}">
           <span>
             <span class="bp-name">${highlight(name, query)}</span>
             <span class="bp-cat">${highlight(catLabel, query)}</span>
           </span>
-          <span class="bp-arrow">›</span>
+          <span class="bp-arrow">${isSel ? '✓' : '+'}</span>
         </button>
       `;
     }).join('');
@@ -556,54 +574,128 @@ function renderList() {
   }).join('');
 
   listBox.querySelectorAll('.bike-pick').forEach(btn => {
-    btn.addEventListener('click', () => selectBike(btn.getAttribute('data-name')));
+    btn.addEventListener('click', () => toggleBikeSelection(btn.getAttribute('data-name')));
   });
 }
 
 document.getElementById('bikeSearch').addEventListener('input', renderList);
 
-// ---------- STEP 2: date + price ----------
-function selectBike(name) {
-  selectedBike = name;
-  document.getElementById('pickSection').classList.add('hidden');
-  document.getElementById('quoteSection').classList.remove('hidden');
-  document.getElementById('selectedBikeName').textContent = name;
-
-  const catText = bikeCategory[name];
-  selectedCatIndex = findCategoryIndex(catText);
-  const catBox = document.getElementById('selectedCatBox');
-  const customBox = document.getElementById('customRateBox');
-
-  if (selectedCatIndex >= 0) {
-    catBox.innerHTML = `<span class="selected-cat">Category: <b>${CATEGORY_DEFS[selectedCatIndex].label}</b></span>`;
-    customBox.classList.remove('show');
-  } else if (catText) {
-    catBox.innerHTML = `<span class="selected-cat warn">Category "${catText}" doesn't match a known rate</span>`;
-    customBox.classList.add('show');
-  } else {
-    catBox.innerHTML = `<span class="selected-cat warn">No category set for this bike</span>`;
-    customBox.classList.add('show');
-  }
-
-  document.getElementById('fromDate').value = '';
-  document.getElementById('toDate').value = '';
-  document.getElementById('customRateInput').value = '';
-  document.getElementById('durationPill').classList.remove('show');
-  document.getElementById('resultCard').classList.remove('show');
-  document.getElementById('calcStatus').textContent = '';
-  updateCalcBtn();
+function toggleBikeSelection(name) {
+  if (selectedBikeSet.has(name)) selectedBikeSet.delete(name);
+  else selectedBikeSet.add(name);
+  renderList();
+  updateContinueBar();
 }
 
-document.getElementById('changeBikeBtn').addEventListener('click', () => {
-  selectedBike = null;
-  document.getElementById('quoteSection').classList.add('hidden');
-  document.getElementById('pickSection').classList.remove('hidden');
+function updateContinueBar() {
+  const bar = document.getElementById('continueBar');
+  const n = selectedBikeSet.size;
+  document.getElementById('selCount').textContent = n;
+  document.getElementById('selCountPlural').textContent = n === 1 ? '' : 's';
+  bar.classList.toggle('hidden', n === 0);
+}
+
+document.getElementById('continueBtn').addEventListener('click', () => {
+  if (!selectedBikeSet.size) return;
+  document.getElementById('pickSection').classList.add('hidden');
+  document.getElementById('quoteSection').classList.remove('hidden');
+  renderSelectedBikes();
+  document.getElementById('fromDate').value = '';
+  document.getElementById('toDate').value = '';
+  document.getElementById('daysInput').value = '';
+  document.getElementById('durationPill').classList.remove('show');
+  document.getElementById('resultsContainer').innerHTML = '';
+  document.getElementById('replyCard').style.display = 'none';
+  document.getElementById('calcStatus').textContent = '';
+  updateCalcBtn();
 });
 
+document.getElementById('changeBikeBtn').addEventListener('click', () => {
+  document.getElementById('quoteSection').classList.add('hidden');
+  document.getElementById('pickSection').classList.remove('hidden');
+  renderList();
+  updateContinueBar();
+});
+
+// ---------- STEP 2: selected bikes + per-bike custom rates ----------
+function customRateInputHtml(name) {
+  const escapedName = name.replace(/"/g, '&quot;');
+  return `
+    <div class="custom-rate-box">
+      <label class="f">Custom monthly rate for this bike</label>
+      <div class="rate-input-wrap">
+        <span class="currency-prefix">฿</span>
+        <input type="number" class="per-bike-rate-input" data-rate-for="${escapedName}" min="1" step="1" inputmode="numeric" placeholder="e.g. 3500">
+      </div>
+      <div class="rate-hint">This bike's category didn't match a known rate — enter a monthly rate to price it. Daily rate is this ÷ 30, scaled to the rental length.</div>
+    </div>
+  `;
+}
+
+function renderSelectedBikes() {
+  const box = document.getElementById('selectedBikesList');
+  const names = Array.from(selectedBikeSet).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+
+  box.innerHTML = names.map(name => {
+    const catText = bikeCategory[name];
+    const idx = findCategoryIndex(catText);
+    const escapedName = name.replace(/"/g, '&quot;');
+
+    let catHtml, rateHtml = '';
+    if (idx >= 0) {
+      catHtml = `<span class="selected-cat">Category: <b>${CATEGORY_DEFS[idx].label}</b></span>`;
+    } else if (catText) {
+      catHtml = `<span class="selected-cat warn">Category "${catText}" doesn't match a known rate</span>`;
+      rateHtml = customRateInputHtml(name);
+    } else {
+      catHtml = `<span class="selected-cat warn">No category set for this bike</span>`;
+      rateHtml = customRateInputHtml(name);
+    }
+
+    return `
+      <div class="sel-bike-row">
+        <div class="sel-bike-top">
+          <span class="sel-bike-name">${name}</span>
+          <button type="button" class="remove-bike" data-name="${escapedName}">Remove</button>
+        </div>
+        <div>${catHtml}</div>
+        ${rateHtml}
+      </div>
+    `;
+  }).join('');
+
+  box.querySelectorAll('.remove-bike').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const name = btn.getAttribute('data-name');
+      selectedBikeSet.delete(name);
+      if (!selectedBikeSet.size) {
+        document.getElementById('quoteSection').classList.add('hidden');
+        document.getElementById('pickSection').classList.remove('hidden');
+        renderList();
+        updateContinueBar();
+        return;
+      }
+      renderSelectedBikes();
+      updateCalcBtn();
+    });
+  });
+
+  box.querySelectorAll('.per-bike-rate-input').forEach(inp => {
+    inp.addEventListener('input', updateCalcBtn);
+  });
+}
+
+// ---------- dates: From/To, or Number of days ----------
 function daysBetween(from, to) {
   if (!from || !to) return 0;
   const diff = (new Date(to) - new Date(from)) / 86400000;
   return diff > 0 ? Math.round(diff) : 0;
+}
+
+function daysToDate(fromStr, days) {
+  const d = new Date(fromStr + 'T00:00:00');
+  d.setDate(d.getDate() + Number(days));
+  return d.toISOString().slice(0, 10);
 }
 
 function monthDayBreakdown(from, to) {
@@ -640,26 +732,47 @@ function fmtDuration(from, to) {
   return parts.join(', ') + ` (${totalDays} days total)`;
 }
 
-function getCustomRate() {
-  const v = parseFloat(document.getElementById('customRateInput').value);
-  return (!isNaN(v) && v > 0) ? v : null;
-}
+document.getElementById('fromDate').addEventListener('change', () => {
+  const daysVal = parseInt(document.getElementById('daysInput').value, 10);
+  const fromVal = document.getElementById('fromDate').value;
+  if (daysVal > 0 && fromVal) {
+    document.getElementById('toDate').value = daysToDate(fromVal, daysVal);
+  }
+  updateCalcBtn();
+});
 
-function getPrice(months, leftoverDays) {
-  const isCustom = selectedCatIndex < 0;
+document.getElementById('toDate').addEventListener('change', () => {
+  const from = document.getElementById('fromDate').value;
+  const to = document.getElementById('toDate').value;
+  const d = daysBetween(from, to);
+  document.getElementById('daysInput').value = d > 0 ? d : '';
+  updateCalcBtn();
+});
+
+document.getElementById('daysInput').addEventListener('input', () => {
+  const daysVal = parseInt(document.getElementById('daysInput').value, 10);
+  if (!daysVal || daysVal <= 0) { updateCalcBtn(); return; }
+  const fromEl = document.getElementById('fromDate');
+  if (!fromEl.value) fromEl.value = new Date().toISOString().slice(0, 10);
+  document.getElementById('toDate').value = daysToDate(fromEl.value, daysVal);
+  updateCalcBtn();
+});
+
+// ---------- pricing ----------
+function priceFor(catIndex, customRate, months, leftoverDays) {
+  const isCustom = catIndex < 0;
   let monthlyRate;
 
   if (isCustom) {
-    const custom = getCustomRate();
-    if (!custom) return null;
-    monthlyRate = custom;
+    if (!customRate) return null;
+    monthlyRate = customRate;
   } else {
-    monthlyRate = RATES[30][selectedCatIndex];
+    monthlyRate = RATES[30][catIndex];
   }
 
   if (months === 0) {
     if (isCustom) return Math.round((monthlyRate / 30) * leftoverDays);
-    return RATES[leftoverDays][selectedCatIndex];
+    return RATES[leftoverDays] ? RATES[leftoverDays][catIndex] : null;
   }
 
   const dailyRate = monthlyRate / 30;
@@ -672,7 +785,17 @@ function fmt(n) {
 
 function fmtDate(str) {
   if (!str) return '';
-  return new Date(str).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
+  return new Date(str).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function allCustomRatesValid() {
+  return Array.from(selectedBikeSet).every(name => {
+    const catIndex = findCategoryIndex(bikeCategory[name]);
+    if (catIndex >= 0) return true;
+    const input = document.querySelector('.per-bike-rate-input[data-rate-for="' + CSS.escape(name) + '"]');
+    const v = input ? parseFloat(input.value) : NaN;
+    return !isNaN(v) && v > 0;
+  });
 }
 
 function updateCalcBtn() {
@@ -688,18 +811,12 @@ function updateCalcBtn() {
     pill.classList.remove('show');
   }
 
-  const isCustom = selectedCatIndex < 0;
-  const customOk = !isCustom || !!getCustomRate();
-
-  const ready = from && to && days > 0 && customOk;
+  const ready = from && to && days > 0 && selectedBikeSet.size > 0 && allCustomRatesValid();
   document.getElementById('calcBtn').disabled = !ready;
-  document.getElementById('resultCard').classList.remove('show');
+  document.getElementById('resultsContainer').innerHTML = '';
+  document.getElementById('replyCard').style.display = 'none';
   document.getElementById('calcStatus').textContent = '';
 }
-
-document.getElementById('fromDate').addEventListener('change', updateCalcBtn);
-document.getElementById('toDate').addEventListener('change', updateCalcBtn);
-document.getElementById('customRateInput').addEventListener('input', updateCalcBtn);
 
 document.getElementById('calcBtn').addEventListener('click', () => {
   const from = document.getElementById('fromDate').value;
@@ -710,33 +827,67 @@ document.getElementById('calcBtn').addEventListener('click', () => {
 
   if (!days || !bd) return;
 
-  if (selectedCatIndex >= 0 && bd.months === 0 && !RATES[bd.days]) {
-    statusEl.textContent = 'Could not find a rate for that many days.';
-    return;
+  const entries = [];
+  const names = Array.from(selectedBikeSet).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+
+  for (const name of names) {
+    const catIndex = findCategoryIndex(bikeCategory[name]);
+
+    if (catIndex >= 0 && bd.months === 0 && !RATES[bd.days]) {
+      statusEl.textContent = `Could not find a rate for that many days for ${name}.`;
+      return;
+    }
+
+    let customRate = null;
+    if (catIndex < 0) {
+      const input = document.querySelector('.per-bike-rate-input[data-rate-for="' + CSS.escape(name) + '"]');
+      const v = input ? parseFloat(input.value) : NaN;
+      if (isNaN(v) || v <= 0) {
+        statusEl.textContent = `Enter a custom monthly rate for ${name} to price it.`;
+        return;
+      }
+      customRate = v;
+    }
+
+    const price = priceFor(catIndex, customRate, bd.months, bd.days);
+    if (price === null) {
+      statusEl.textContent = `Could not calculate a price for ${name}.`;
+      return;
+    }
+
+    entries.push({ name, price, from, to });
   }
 
-  const price = getPrice(bd.months, bd.days);
-  if (price === null) {
-    statusEl.textContent = 'Enter a custom monthly rate to price this bike.';
-    return;
-  }
   statusEl.textContent = '';
+  renderResults(entries);
+});
 
-  const avg = Math.round(price / days);
+function renderResults(entries) {
+  const container = document.getElementById('resultsContainer');
 
-  document.getElementById('resultPrice').textContent = fmt(price);
-  document.getElementById('rBike').textContent = selectedBike;
-  document.getElementById('rFrom').textContent = fmtDate(from);
-  document.getElementById('rTo').textContent = fmtDate(to);
-  document.getElementById('rDays').textContent = fmtDuration(from, to);
-  document.getElementById('rAvg').textContent = fmt(avg) + '/day';
-  document.getElementById('replyText').value = buildReplyText(selectedBike, price, from, to);
+  container.innerHTML = entries.map(e => {
+    const d = daysBetween(e.from, e.to);
+    const avg = d > 0 ? Math.round(e.price / d) : 0;
+    return `
+      <div class="card">
+        <div class="result-label">Total Rental Cost</div>
+        <div class="result-price">${fmt(e.price)}</div>
+        <div class="result-row"><span class="key">Bike</span><span class="val">${e.name}</span></div>
+        <div class="result-row"><span class="key">From</span><span class="val">${fmtDate(e.from)}</span></div>
+        <div class="result-row"><span class="key">To</span><span class="val">${fmtDate(e.to)}</span></div>
+        <div class="result-row"><span class="key">Duration</span><span class="val">${fmtDuration(e.from, e.to)}</span></div>
+        <div class="result-row"><span class="key">Per day avg</span><span class="val">${fmt(avg)}/day</span></div>
+      </div>
+    `;
+  }).join('');
+
+  document.getElementById('replyText').value = buildReplyTextMulti(entries);
   document.getElementById('copyStatus').textContent = '';
 
-  const res = document.getElementById('resultCard');
-  res.classList.add('show');
-  res.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-});
+  const replyCard = document.getElementById('replyCard');
+  replyCard.style.display = 'block';
+  replyCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
 
 function formatDepositText(raw) {
   if (!raw) return '';
@@ -747,9 +898,7 @@ function formatDepositText(raw) {
 
 // Duration phrasing just for the copyable reply text: exactly 30 days reads
 // as "one month"; any other length (including 31+) is just the plain day
-// count, rather than the month/day breakdown used in the price card above.
-// Number of days in the calendar month that the given date (yyyy-MM-dd)
-// falls in — 28/29/30/31, whichever applies.
+// count, rather than the month/day breakdown used in the price cards above.
 function daysInMonthOf(dateStr) {
   const d = new Date(dateStr);
   return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
@@ -762,30 +911,45 @@ function replyDurationText(from, to) {
   return days + (days === 1 ? ' day' : ' days');
 }
 
-function buildReplyText(name, price, from, to) {
-  const details = bikeDetails[name] || {};
+// Builds one sentence describing a single bike offer. The very first bike
+// in the list reads like the original single-bike reply ("Yes we have a
+// ... available."); every bike after that reads as "We also have our ...
+// available." so the message flows as a set of options rather than
+// repeating the same opening line.
+function describeBikeOffer(entry, isFirst) {
+  const details = bikeDetails[entry.name] || {};
   const nameParts = [];
   if (details.make) nameParts.push(details.make);
   if (details.model) nameParts.push(details.model);
-  const displayName = nameParts.length ? nameParts.join(' ') : name;
+  const displayName = nameParts.length ? nameParts.join(' ') : entry.name;
 
   const specParts = [];
   if (details.cc) specParts.push(details.cc);
   if (details.key) specParts.push(details.key);
   const bikeDesc = specParts.length ? `${displayName}, ${specParts.join(' ')}` : displayName;
 
-  let message = `Thanks for getting in touch! Yes we have a ${bikeDesc} bike available. It will be ${fmt(price)} for ${replyDurationText(from, to)}.`;
+  const intro = isFirst
+    ? `Yes we have a ${bikeDesc} bike available.`
+    : `We also have our ${bikeDesc} bike available.`;
+
+  let sentence = `${intro} It will be ${fmt(entry.price)} for ${replyDurationText(entry.from, entry.to)}.`;
 
   const depositText = formatDepositText(details.deposit);
   if (depositText) {
-    message += ` There is a ${depositText} refundable deposit.`;
+    sentence += ` There is a ${depositText} refundable deposit.`;
   }
 
   if ((details.box || '').toString().trim().toLowerCase() === 'yes') {
-    message += ` This model also comes with a handy top box for extra storage.`;
+    sentence += ` This model also comes with a handy top box for extra storage.`;
   }
 
-  return message;
+  return sentence;
+}
+
+function buildReplyTextMulti(entries) {
+  if (!entries.length) return '';
+  const sentences = entries.map((e, i) => describeBikeOffer(e, i === 0));
+  return `Thanks for getting in touch! ${sentences.join(' ')}`;
 }
 
 document.getElementById('copyReplyBtn').addEventListener('click', () => {
