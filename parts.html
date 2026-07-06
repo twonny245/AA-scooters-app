@@ -127,6 +127,70 @@
   .save-bar{
     position:sticky; bottom:0; margin-top:4px;
   }
+
+  .field-with-action{ display:flex; align-items:center; gap:8px; }
+  .field-with-action input{ flex:1; }
+  .camera-btn{
+    flex-shrink:0; width:44px; height:44px; border-radius:9px;
+    border:1px solid var(--line); background:#FBFAF7; cursor:pointer;
+    font-size:19px; display:flex; align-items:center; justify-content:center;
+    padding:0; margin-top:0;
+  }
+  .camera-btn:active{ transform:scale(.96); }
+
+  .modal-overlay{
+    position:fixed; inset:0; background:rgba(15,36,33,.55); z-index:1000;
+    display:none; align-items:flex-end; justify-content:center;
+  }
+  .modal-overlay.show{ display:flex; }
+  .modal-card{
+    background:var(--card); width:100%; max-width:520px; border-radius:18px 18px 0 0;
+    padding:20px; max-height:92vh; overflow-y:auto;
+  }
+  @media (min-width:560px){
+    .modal-overlay{ align-items:center; }
+    .modal-card{ border-radius:18px; }
+  }
+  .modal-card h3{
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:19px;
+    color:var(--petrol); margin:0 0 12px;
+  }
+  .modal-preview{
+    width:100%; max-height:240px; object-fit:contain; border-radius:10px;
+    border:1px solid var(--line); background:#000; margin-bottom:14px; display:block;
+  }
+  .ocr-status{
+    font-size:12.5px; color:var(--muted); margin:-6px 0 14px; display:flex; align-items:center; gap:6px;
+  }
+  .spinner{
+    width:13px; height:13px; border:2px solid var(--line); border-top-color:var(--cone);
+    border-radius:50%; animation:spin .7s linear infinite; flex-shrink:0;
+  }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+  .modal-actions{ display:flex; gap:10px; margin-top:18px; }
+  .modal-actions button{ margin-top:0; }
+  .modal-actions .cancel-btn{ background:#EFEAE0; color:var(--ink); }
+
+  .crop-hint{ font-size:12px; color:var(--muted); margin:-6px 0 12px; line-height:1.4; }
+  .crop-stage{
+    position:relative; width:100%; height:340px; background:#000;
+    border-radius:10px; border:1px solid var(--line); overflow:hidden;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .crop-stage img{
+    max-width:100%; max-height:100%; display:block;
+    pointer-events:none; user-select:none; -webkit-user-drag:none;
+  }
+  .crop-box{
+    position:absolute; border:2px solid var(--cone);
+    box-shadow:0 0 0 2000px rgba(0,0,0,.5);
+    touch-action:none; cursor:move;
+  }
+  .crop-handle{
+    position:absolute; right:-12px; bottom:-12px; width:24px; height:24px;
+    border-radius:50%; background:var(--cone); border:2px solid #fff;
+    touch-action:none; box-shadow:0 1px 4px rgba(0,0,0,.3);
+  }
 </style>
 </head>
 <body>
@@ -183,6 +247,53 @@
 
 </main>
 
+<input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none">
+<input type="file" id="libraryInput" accept="image/*" style="display:none">
+
+<div class="modal-overlay" id="sourceModal">
+  <div class="modal-card">
+    <h3>Speedometer reading</h3>
+    <div class="modal-actions" style="flex-direction:column;">
+      <button type="button" id="chooseCameraBtn">📷 Take a photo</button>
+      <button type="button" id="chooseLibraryBtn">🖼️ Upload a photo</button>
+      <button type="button" class="cancel-btn" id="chooseCancelBtn">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="cropModal">
+  <div class="modal-card">
+    <h3>Crop to the number</h3>
+    <div class="crop-hint">Drag the box over just the odometer digits, then confirm. Tight, straight-on, glare-free crops read best — drag the orange corner to resize.</div>
+    <div class="crop-stage" id="cropStage">
+      <img id="cropImage" alt="Photo to crop">
+      <div class="crop-box" id="cropBox">
+        <div class="crop-handle" id="cropHandle"></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="cancel-btn" id="cropSkipBtn">Use full photo</button>
+      <button type="button" id="cropConfirmBtn">Use this crop</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="odoModal">
+  <div class="modal-card">
+    <h3>Speedometer reading</h3>
+    <img id="odoPreview" class="modal-preview" alt="Speedometer photo">
+    <div class="ocr-status" id="ocrStatus"><div class="spinner"></div> Reading number from photo…</div>
+    <label for="odoKmInput">Last kilometers check</label>
+    <input id="odoKmInput" inputmode="numeric" placeholder="e.g. 24350">
+    <label for="odoDateInput">Date checked</label>
+    <input type="date" id="odoDateInput">
+    <div class="modal-actions">
+      <button type="button" class="cancel-btn" id="odoCancelBtn">Cancel</button>
+      <button type="button" id="odoConfirmBtn">Confirm &amp; save</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // Same Apps Script web app as the Customer Record page — it now also
 // serves/updates the "Parts and Oil change" tab via the `action` field.
@@ -192,6 +303,8 @@ let partsData = null;     // { headers: [...], rows: [...] }
 let keyHeader = null;     // the header used as the unique bike identifier (first column)
 let rowsPromise = null;
 let currentRow = null;    // the row object currently loaded into the edit form
+let kmHeaderName = null;  // actual sheet header for the km-reading field, for the current bike
+let dateHeaderName = null;// actual sheet header for the plain "Date" field, for the current bike
 
 function setLoadStatus(msg) {
   const el = document.getElementById('loadStatus');
@@ -368,6 +481,24 @@ function findNotesGroupStart(headers) {
   return headers.findIndex(h => h.trim().toLowerCase() === 'horn switch');
 }
 
+// Matches whichever name the "km reading" column currently has in the
+// sheet — old name or the renamed one — so this keeps working whether or
+// not the header cell has been renamed yet.
+function normalizeHeaderText(h) {
+  return (h || '').toString().trim().toLowerCase().replace(/\s+/g, ' ');
+}
+const KM_CHECK_HEADER_NAMES = ['last kilometers check', 'last km check', 'last oil check'];
+function findKmCheckHeader(headers) {
+  for (const name of KM_CHECK_HEADER_NAMES) {
+    const match = headers.find(h => normalizeHeaderText(h) === name);
+    if (match) return match;
+  }
+  return null;
+}
+function findExactDateHeader(headers) {
+  return headers.find(h => normalizeHeaderText(h) === 'date') || null;
+}
+
 function selectBike(bikeName) {
   const row = partsData.rows.find(r => r[keyHeader] === bikeName);
   if (!row) return;
@@ -388,6 +519,11 @@ function selectBike(bikeName) {
   // anything after that is folded into one combined Notes box.
   const individualEnd = notesStart === -1 ? headers.length : notesStart + 1;
 
+  const kmHeaderActual = findKmCheckHeader(headers);
+  const dateHeaderActual = findExactDateHeader(headers);
+  kmHeaderName = kmHeaderActual;
+  dateHeaderName = dateHeaderActual;
+
   headers.forEach((header, i) => {
     if (i === 0) return; // skip the bike-name column itself — that's the key, shown above
     if (i >= individualEnd) return; // handled by the Notes box below
@@ -397,7 +533,9 @@ function selectBike(bikeName) {
 
     const label = document.createElement('label');
     label.setAttribute('for', id);
-    label.textContent = header;
+    // The sheet column itself can stay named "Last oil check" — the GUI
+    // always shows the clearer "Last kilometers check" for this field.
+    label.textContent = (header === kmHeaderActual) ? 'Last kilometers check' : header;
     wrap.appendChild(label);
 
     if (header.trim().toLowerCase() === 'status') {
@@ -426,7 +564,24 @@ function selectBike(bikeName) {
       input.dataset.header = header;
       input.value = value;
       input.autocomplete = 'off';
-      wrap.appendChild(input);
+
+      if (header === kmHeaderActual) {
+        const fieldRow = document.createElement('div');
+        fieldRow.className = 'field-with-action';
+        fieldRow.appendChild(input);
+
+        const camBtn = document.createElement('button');
+        camBtn.type = 'button';
+        camBtn.className = 'camera-btn';
+        camBtn.title = 'Take a photo of the speedometer';
+        camBtn.textContent = '📷';
+        camBtn.addEventListener('click', () => openCameraFor(id));
+        fieldRow.appendChild(camBtn);
+
+        wrap.appendChild(fieldRow);
+      } else {
+        wrap.appendChild(input);
+      }
     }
 
     box.appendChild(wrap);
@@ -466,7 +621,7 @@ document.getElementById('changeBikeBtn').addEventListener('click', () => {
 
 // ---------------- Saving ----------------
 
-document.getElementById('saveBtn').addEventListener('click', async () => {
+async function performSave() {
   if (!currentRow) return;
   const saveBtn = document.getElementById('saveBtn');
   const statusBox = document.getElementById('statusBox');
@@ -520,6 +675,289 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
     saveBtn.disabled = false;
     saveBtn.textContent = 'Save changes';
   }
+}
+
+document.getElementById('saveBtn').addEventListener('click', performSave);
+
+// ---------------- Camera capture + auto-read for speedometer photos ----------------
+// This runs an OCR pass entirely in the browser (no server or API key
+// involved) restricted to digits. It's best-effort: whatever it reads is
+// shown as an editable starting point, never applied silently, since
+// speedometer photos (glare, angle, digit vs. needle dials) aren't always
+// clean reads.
+
+let ocrTargetKmFieldId = null;
+let tesseractLoadPromise = null;
+
+function loadTesseract() {
+  if (window.Tesseract) return Promise.resolve();
+  if (tesseractLoadPromise) return tesseractLoadPromise;
+  tesseractLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('reader library failed to load'));
+    document.head.appendChild(script);
+  });
+  return tesseractLoadPromise;
+}
+
+function openCameraFor(kmFieldId) {
+  ocrTargetKmFieldId = kmFieldId;
+  document.getElementById('sourceModal').classList.add('show');
+}
+
+document.getElementById('chooseCameraBtn').addEventListener('click', () => {
+  document.getElementById('sourceModal').classList.remove('show');
+  const input = document.getElementById('cameraInput');
+  input.value = '';
+  input.click();
+});
+document.getElementById('chooseLibraryBtn').addEventListener('click', () => {
+  document.getElementById('sourceModal').classList.remove('show');
+  const input = document.getElementById('libraryInput');
+  input.value = '';
+  input.click();
+});
+document.getElementById('chooseCancelBtn').addEventListener('click', () => {
+  document.getElementById('sourceModal').classList.remove('show');
+  ocrTargetKmFieldId = null;
+});
+
+function todayInputValue() {
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+}
+
+// ---- Step 1: pick a photo, then hand it to the crop modal ----
+function handleSelectedFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => openCropModal(reader.result);
+  reader.readAsDataURL(file);
+}
+
+document.getElementById('cameraInput').addEventListener('change', (e) => {
+  handleSelectedFile(e.target.files && e.target.files[0]);
+});
+document.getElementById('libraryInput').addEventListener('change', (e) => {
+  handleSelectedFile(e.target.files && e.target.files[0]);
+});
+
+// ---- Step 2: crop modal — a draggable, resizable box over the photo ----
+const cropStage = document.getElementById('cropStage');
+const cropImage = document.getElementById('cropImage');
+const cropBox = document.getElementById('cropBox');
+const cropHandle = document.getElementById('cropHandle');
+
+function openCropModal(dataUrl) {
+  cropImage.onload = () => {
+    // Default box: centered, roomy strip — odometer digits are usually
+    // wider than tall. offsetLeft/Top/Width/Height on the <img> are
+    // relative to .crop-stage (its nearest positioned ancestor), so this
+    // works regardless of letterboxing from the image's own aspect ratio.
+    const iw = cropImage.offsetWidth, ih = cropImage.offsetHeight;
+    const ix = cropImage.offsetLeft, iy = cropImage.offsetTop;
+    const bw = Math.round(iw * 0.7);
+    const bh = Math.round(ih * 0.22);
+    setCropBoxRect(ix + Math.round((iw - bw) / 2), iy + Math.round((ih - bh) / 2), bw, bh);
+    document.getElementById('cropModal').classList.add('show');
+  };
+  cropImage.src = dataUrl;
+}
+
+function getImageDisplayRect() {
+  return {
+    left: cropImage.offsetLeft, top: cropImage.offsetTop,
+    width: cropImage.offsetWidth, height: cropImage.offsetHeight
+  };
+}
+
+function setCropBoxRect(left, top, width, height) {
+  cropBox.style.left = left + 'px';
+  cropBox.style.top = top + 'px';
+  cropBox.style.width = width + 'px';
+  cropBox.style.height = height + 'px';
+}
+
+function getCropBoxRect() {
+  return {
+    left: parseFloat(cropBox.style.left) || 0,
+    top: parseFloat(cropBox.style.top) || 0,
+    width: parseFloat(cropBox.style.width) || 0,
+    height: parseFloat(cropBox.style.height) || 0
+  };
+}
+
+// Dragging the box around (move)
+let dragState = null;
+cropBox.addEventListener('pointerdown', (e) => {
+  if (e.target === cropHandle) return; // handle has its own listener
+  cropBox.setPointerCapture(e.pointerId);
+  const box = getCropBoxRect();
+  dragState = { startX: e.clientX, startY: e.clientY, boxLeft: box.left, boxTop: box.top };
+  e.preventDefault();
+});
+cropBox.addEventListener('pointermove', (e) => {
+  if (!dragState) return;
+  const img = getImageDisplayRect();
+  const box = getCropBoxRect();
+  let newLeft = dragState.boxLeft + (e.clientX - dragState.startX);
+  let newTop = dragState.boxTop + (e.clientY - dragState.startY);
+  newLeft = Math.max(img.left, Math.min(newLeft, img.left + img.width - box.width));
+  newTop = Math.max(img.top, Math.min(newTop, img.top + img.height - box.height));
+  setCropBoxRect(newLeft, newTop, box.width, box.height);
+});
+cropBox.addEventListener('pointerup', () => { dragState = null; });
+cropBox.addEventListener('pointercancel', () => { dragState = null; });
+
+// Resizing via the corner handle
+let resizeState = null;
+cropHandle.addEventListener('pointerdown', (e) => {
+  cropHandle.setPointerCapture(e.pointerId);
+  const box = getCropBoxRect();
+  resizeState = { startX: e.clientX, startY: e.clientY, w: box.width, h: box.height, left: box.left, top: box.top };
+  e.preventDefault();
+  e.stopPropagation();
+});
+cropHandle.addEventListener('pointermove', (e) => {
+  if (!resizeState) return;
+  const img = getImageDisplayRect();
+  let newW = resizeState.w + (e.clientX - resizeState.startX);
+  let newH = resizeState.h + (e.clientY - resizeState.startY);
+  newW = Math.max(30, Math.min(newW, img.left + img.width - resizeState.left));
+  newH = Math.max(20, Math.min(newH, img.top + img.height - resizeState.top));
+  setCropBoxRect(resizeState.left, resizeState.top, newW, newH);
+});
+cropHandle.addEventListener('pointerup', () => { resizeState = null; });
+cropHandle.addEventListener('pointercancel', () => { resizeState = null; });
+
+// ---- Step 3: preprocessing — grayscale + contrast stretch, done on a canvas ----
+// Cheap, dependency-free, and it's what tends to matter most for
+// Tesseract on phone photos: flat lighting + low contrast is the
+// single biggest cause of misreads, more than resolution.
+function preprocessCanvas(canvas) {
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const d = imgData.data;
+  const gray = new Float32Array(w * h);
+  let min = 255, max = 0;
+  for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+    const g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    gray[p] = g;
+    if (g < min) min = g;
+    if (g > max) max = g;
+  }
+  const range = Math.max(1, max - min);
+  for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+    const v = Math.round((gray[p] - min) * (255 / range));
+    d[i] = d[i + 1] = d[i + 2] = v;
+  }
+  ctx.putImageData(imgData, 0, 0);
+}
+
+// Crops (or, if skipped, takes the whole image) then upscales small
+// crops so digits aren't just a handful of pixels tall, then runs the
+// grayscale/contrast pass above.
+function buildProcessedImage(sourceRectOrNull) {
+  const naturalW = cropImage.naturalWidth, naturalH = cropImage.naturalHeight;
+  let sx, sy, sw, sh;
+
+  if (sourceRectOrNull) {
+    const img = getImageDisplayRect();
+    const scaleX = naturalW / img.width;
+    const scaleY = naturalH / img.height;
+    sx = (sourceRectOrNull.left - img.left) * scaleX;
+    sy = (sourceRectOrNull.top - img.top) * scaleY;
+    sw = sourceRectOrNull.width * scaleX;
+    sh = sourceRectOrNull.height * scaleY;
+  } else {
+    sx = 0; sy = 0; sw = naturalW; sh = naturalH;
+  }
+
+  const targetMinWidth = 700;
+  const scale = sw < targetMinWidth ? Math.min(4, targetMinWidth / sw) : 1;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(sw * scale));
+  canvas.height = Math.max(1, Math.round(sh * scale));
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(cropImage, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+  preprocessCanvas(canvas);
+  return canvas.toDataURL('image/png');
+}
+
+document.getElementById('cropConfirmBtn').addEventListener('click', () => {
+  const rect = getCropBoxRect();
+  document.getElementById('cropModal').classList.remove('show');
+  proceedToOdoModal(buildProcessedImage(rect));
+});
+document.getElementById('cropSkipBtn').addEventListener('click', () => {
+  document.getElementById('cropModal').classList.remove('show');
+  proceedToOdoModal(buildProcessedImage(null));
+});
+
+// ---- Step 4: show the (cropped + processed) image and run OCR on it ----
+async function proceedToOdoModal(processedDataUrl) {
+  document.getElementById('odoPreview').src = processedDataUrl;
+  document.getElementById('odoKmInput').value = '';
+  document.getElementById('odoDateInput').value = todayInputValue();
+  document.getElementById('odoModal').classList.add('show');
+
+  const ocrStatus = document.getElementById('ocrStatus');
+  ocrStatus.style.display = 'flex';
+  ocrStatus.innerHTML = '<div class="spinner"></div> Reading number from photo…';
+
+  try {
+    await loadTesseract();
+    const worker = await Tesseract.createWorker('eng');
+    await worker.setParameters({ tessedit_char_whitelist: '0123456789' });
+    const { data: { text } } = await worker.recognize(processedDataUrl);
+    await worker.terminate();
+
+    const digitGroups = (text.match(/\d+/g) || []).sort((a, b) => b.length - a.length);
+    if (digitGroups.length) {
+      document.getElementById('odoKmInput').value = digitGroups[0];
+      ocrStatus.textContent = 'Detected ' + digitGroups[0] + ' — check it against the photo before saving.';
+    } else {
+      ocrStatus.textContent = 'Could not read a number automatically — type it in below.';
+    }
+  } catch (err) {
+    ocrStatus.textContent = 'Automatic reading unavailable — type the number in below.';
+  }
+}
+
+document.getElementById('odoCancelBtn').addEventListener('click', () => {
+  document.getElementById('odoModal').classList.remove('show');
+  ocrTargetKmFieldId = null;
+});
+
+document.getElementById('odoConfirmBtn').addEventListener('click', async () => {
+  const kmVal = document.getElementById('odoKmInput').value.trim();
+  const dateVal = document.getElementById('odoDateInput').value;
+
+  if (!kmVal) {
+    alert('Enter the kilometers reading before saving.');
+    return;
+  }
+  if (!ocrTargetKmFieldId) return;
+
+  const kmInput = document.getElementById(ocrTargetKmFieldId);
+  if (kmInput) kmInput.value = kmVal;
+
+  if (dateHeaderName) {
+    const dateInput = document.querySelector('#fieldsBox [data-header="' + CSS.escape(dateHeaderName) + '"]');
+    if (dateInput) dateInput.value = dateVal;
+  }
+
+  document.getElementById('odoModal').classList.remove('show');
+  ocrTargetKmFieldId = null;
+
+  await performSave();
 });
 </script>
 
