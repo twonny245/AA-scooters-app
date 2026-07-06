@@ -224,8 +224,8 @@
   .reply-box textarea{
     width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:9px;
     font-size:14px; font-family:'Inter',sans-serif; background:#FBFAF7; color:var(--ink);
-    resize:vertical; margin-bottom:10px; line-height:1.5; min-height:160px;
-    overflow-y:hidden;
+    resize:vertical; margin-bottom:10px; line-height:1.5; min-height:260px;
+    overflow-y:auto;
   }
   .reply-box textarea:focus{ outline:none; border-color:var(--petrol-light); background:#fff; }
   button.copy-btn{ background:var(--petrol); }
@@ -922,11 +922,11 @@ function renderResults(entries) {
 
   const replyTextarea = document.getElementById('replyText');
   replyTextarea.value = buildReplyTextMulti(entries);
-  autoGrowReplyText();
   document.getElementById('copyStatus').textContent = '';
 
   const replyCard = document.getElementById('replyCard');
   replyCard.style.display = 'block';
+  autoGrowReplyText();
   replyCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
