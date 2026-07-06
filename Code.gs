@@ -285,7 +285,7 @@ function doGet(e) {
     var values = sheet.getDataRange().getValues();
     var keys = ['timestamp','contact','name','nationality','passport','bikeModel',
                 'status','rentingDateFrom','returnDate','returnTime','deliverToHotel',
-                'totalPrice','paidBy'];
+                'totalPrice','paidBy','situation'];
     var tz = ss.getSpreadsheetTimeZone();
 
     function cellToString(key, val) {

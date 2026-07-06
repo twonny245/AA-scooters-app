@@ -110,6 +110,15 @@
   .bc-details{ font-size:12.5px; color:var(--muted); margin-top:6px; line-height:1.5; }
   .bc-details b{ color:var(--ink); font-weight:600; }
 
+  .due-badge{
+    display:inline-block; font-family:'Barlow Condensed',sans-serif; font-weight:700;
+    font-size:11px; letter-spacing:.04em; text-transform:uppercase;
+    padding:2px 7px; border-radius:5px; margin-left:4px; vertical-align:middle;
+  }
+  .due-badge.contact{ background:#FFF3E6; color:#B36A2E; }
+  .due-badge.due-today{ background:#FDECEC; color:#C0392B; }
+  .due-badge.overdue{ background:#C0392B; color:#fff; }
+
   .empty-hint{ font-size:13px; color:#8A948F; padding:14px 2px; text-align:center; }
 </style>
 </head>
@@ -252,28 +261,26 @@ function bikeNamesMatch(a, b) {
   return na.includes(nb) || nb.includes(na);
 }
 
+// Whether a customer row counts as "still rented", per the "situation"
+// column: "Returned" means the bike is back; blank or "Rented" (or anything
+// else) means it's still out.
+function isRentedSituation(situation) {
+  const s = (situation || '').toString().trim().toLowerCase();
+  return s !== 'returned';
+}
+
 // Finds the customer record currently holding this bike: same bike model,
-// with a return date of today or later. The same bike can have several old,
-// already-returned rows earlier in the sheet — if more than one row still
-// qualifies, the one lowest down / most recently entered in the sheet wins,
-// since that's the actual current booking (more reliable than trusting a
-// possibly mistyped "renting date from" for the tiebreak).
+// whose "situation" column isn't "Returned". The same bike can have several
+// old, already-returned rows earlier in the sheet — if more than one row
+// still qualifies, the one lowest down / most recently entered in the sheet
+// wins, since that's the actual current booking.
 function findCurrentRenter(bikeName) {
   if (!customerRows || !customerRows.length) return null;
   if (!normalizeBikeName(bikeName)) return null;
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
   const candidates = customerRows
     .map((r, sheetIndex) => ({ r, sheetIndex }))
-    .filter(({ r }) => {
-      if (!bikeNamesMatch(r.bikeModel, bikeName)) return false;
-      const ret = parseFlexibleDate(r.returnDate);
-      if (!ret) return false;
-      ret.setHours(0, 0, 0, 0);
-      return ret >= today;
-    });
+    .filter(({ r }) => bikeNamesMatch(r.bikeModel, bikeName) && isRentedSituation(r.situation));
 
   if (!candidates.length) return null;
 
@@ -282,21 +289,17 @@ function findCurrentRenter(bikeName) {
   return candidates[0].r;
 }
 
-// Finds the most recent PAST rental of this bike (return date before today) —
-// used to order "not rented" bikes by how recently they came back.
+// Finds the most recent PAST rental of this bike ("situation" = "Returned")
+// with a parseable return date — used to order "not rented" bikes by how
+// recently they came back.
 function findLastReturn(bikeName) {
   if (!customerRows || !customerRows.length) return null;
   if (!normalizeBikeName(bikeName)) return null;
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
   const candidates = customerRows.filter(r => {
     if (!bikeNamesMatch(r.bikeModel, bikeName)) return false;
-    const ret = parseFlexibleDate(r.returnDate);
-    if (!ret) return false;
-    ret.setHours(0, 0, 0, 0);
-    return ret < today;
+    if (isRentedSituation(r.situation)) return false;
+    return !!parseFlexibleDate(r.returnDate);
   });
 
   if (!candidates.length) return null;
@@ -308,6 +311,25 @@ function findLastReturn(bikeName) {
   });
 
   return candidates[0];
+}
+
+// Due-date urgency label for a currently-rented bike: due tomorrow ->
+// "Contact customer", due today -> "Due today", due date already passed ->
+// "Overdue". Anything further out returns null (just show the plain date).
+function getDueLabel(returnDateStr) {
+  const due = parseFlexibleDate(returnDateStr);
+  if (!due) return null;
+  due.setHours(0, 0, 0, 0);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const diffDays = Math.round((due - today) / (1000 * 60 * 60 * 24));
+
+  if (diffDays < 0) return { text: 'Overdue', cls: 'overdue' };
+  if (diffDays === 0) return { text: 'Due today', cls: 'due-today' };
+  if (diffDays === 1) return { text: 'Contact customer', cls: 'contact' };
+  return null;
 }
 
 // Case-insensitive, multi-word "contains all tokens" matcher — same rule
@@ -333,13 +355,18 @@ function highlight(value, query) {
 function bikeCardHtml(name, renter, query) {
   const rented = !!renter;
   const cls = rented ? 'rented' : 'not-rented';
+  const dueLabel = rented ? getDueLabel(renter.returnDate) : null;
 
   const renterLine = rented
     ? `<div class="bc-renter">🧑‍✈️ Rented to: <b>${renter.name || 'Unknown'}</b>${renter.contact ? ' &nbsp;·&nbsp; ' + renter.contact : ''}</div>`
     : '';
 
+  const dueBadge = dueLabel
+    ? `<span class="due-badge ${dueLabel.cls}">${dueLabel.text}</span>`
+    : '';
+
   const details = rented
-    ? `<b>Due back:</b> ${formatDateDisplay(renter.returnDate)}`
+    ? `<b>Due back:</b> ${formatDateDisplay(renter.returnDate)} ${dueBadge}`
     : `Not rented`;
 
   return `
