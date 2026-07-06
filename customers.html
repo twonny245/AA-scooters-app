@@ -159,6 +159,11 @@
     border-color:var(--petrol-light);
     background:#fff;
   }
+  input:disabled, select:disabled{
+    background:#EEE9DE;
+    color:#A6ADA9;
+    cursor:not-allowed;
+  }
   .row2{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
   .row2 > div{min-width:0;}
   button{
@@ -388,7 +393,21 @@
         <input type="checkbox" id="dealCheckbox">
         <label for="dealCheckbox">Deal</label>
       </div>
+      <div class="deal-row">
+        <input type="checkbox" id="depositCheckbox">
+        <label for="depositCheckbox">Deposit</label>
+      </div>
+      <select id="depositMethod" disabled style="margin-top:8px;">
+        <option value="">Select deposit method</option>
+        <option value="Cash">Cash</option>
+        <option value="Scan">Scan</option>
+        <option value="Wise">Wise</option>
+        <option value="Revolut">Revolut</option>
+        <option value="Passport">Passport</option>
+      </select>
+      <input id="depositAmount" type="number" min="0" step="1" placeholder="Deposit amount (฿)" class="hidden" style="margin-top:8px;">
     </div>
+
 
     <button type="submit" id="submitBtn">Add to sheet</button>
     <div class="status" id="statusBox"></div>
@@ -507,6 +526,32 @@ contactSelect.addEventListener('change', () => {
   }
 });
 
+const depositCheckbox = document.getElementById('depositCheckbox');
+const depositMethod = document.getElementById('depositMethod');
+const depositAmount = document.getElementById('depositAmount');
+const DEPOSIT_METHODS_NEEDING_AMOUNT = ['Scan', 'Wise', 'Revolut'];
+
+function refreshDepositAmountVisibility() {
+  const needsAmount = depositCheckbox.checked && DEPOSIT_METHODS_NEEDING_AMOUNT.includes(depositMethod.value);
+  if (needsAmount) {
+    depositAmount.classList.remove('hidden');
+    depositAmount.required = true;
+  } else {
+    depositAmount.classList.add('hidden');
+    depositAmount.required = false;
+    depositAmount.value = '';
+  }
+}
+
+depositCheckbox.addEventListener('change', () => {
+  depositMethod.disabled = !depositCheckbox.checked;
+  if (!depositCheckbox.checked) {
+    depositMethod.value = '';
+  }
+  refreshDepositAmountVisibility();
+});
+depositMethod.addEventListener('change', refreshDepositAmountVisibility);
+
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   statusBox.className = 'status';
@@ -544,7 +589,9 @@ form.addEventListener('submit', async (e) => {
     returnTime: document.getElementById('returnTime').value,
     deliverToHotel: document.getElementById('deliverToHotel').value,
     totalPrice: totalPrice,
-    paidBy: document.getElementById('paidBy').value
+    paidBy: document.getElementById('paidBy').value,
+    deposit: depositCheckbox.checked ? depositMethod.value : '',
+    depositAmount: (depositCheckbox.checked && DEPOSIT_METHODS_NEEDING_AMOUNT.includes(depositMethod.value)) ? depositAmount.value : ''
   };
 
   try {
@@ -567,6 +614,10 @@ form.addEventListener('submit', async (e) => {
       form.reset();
       contactOther.classList.add('hidden');
       contactOther.required = false;
+      depositMethod.disabled = true;
+      depositMethod.required = false;
+      depositAmount.classList.add('hidden');
+      depositAmount.required = false;
       setDefaultsToNow();
     } else {
       throw new Error(data.error || 'Unknown error');

@@ -46,6 +46,11 @@ function doPost(e) {
       throw new Error('Sheet named "customer" not found in this spreadsheet.');
     }
 
+    // Columns: A timestamp, B contact, C name, D nationality, E passport,
+    // F bikeModel, G status (blank, unused), H rentingDateFrom, I returnDate,
+    // J returnTime, K deliverToHotel, L totalPrice, M paidBy, N situation
+    // (left blank here — set later by markBikeReturned/closeBikeForExtend),
+    // O deposit method (blank if no deposit was taken).
     sheet.appendRow([
       Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'dd/MM/yyyy'),
       data.contact || '',
@@ -59,11 +64,13 @@ function doPost(e) {
       data.returnTime || '',
       data.deliverToHotel || '',
       data.totalPrice || '',
-      data.paidBy || ''
+      data.paidBy || '',
+      '',
+      data.deposit || ''
     ]);
 
     var newRow = sheet.getLastRow();
-    var numCols = 13;
+    var numCols = 15;
     var newRange = sheet.getRange(newRow, 1, 1, numCols);
     newRange.setBorder(true, true, true, true, true, true);
 
@@ -110,8 +117,27 @@ function doPost(e) {
       Logger.log('Deposit update warning: ' + depositErr.message);
     }
 
+    // Security deposit (the checkbox/dropdown on the intake form -- separate
+    // from how the rental itself was paid). Only Scan/Wise/Revolut need a
+    // logged row; Cash and Passport are just noted on the customer row and
+    // need nothing else. Wrapped so a problem here never breaks the rest of
+    // customer intake, which has already succeeded by this point.
+    var securityDepositWarning = null;
+    try {
+      var depositMethodLower = (data.deposit || '').toString().trim().toLowerCase();
+      if (depositMethodLower === 'scan' || depositMethodLower === 'wise' || depositMethodLower === 'revolut') {
+        logSecurityDeposit(ss, depositMethodLower, data.depositAmount, data.name);
+      }
+    } catch (secDepErr) {
+      securityDepositWarning = secDepErr.message;
+      Logger.log('Security deposit log warning: ' + secDepErr.message);
+    }
+
     var responsePayload = { success: true };
-    if (depositWarning) responsePayload.warning = depositWarning;
+    var warnings = [];
+    if (depositWarning) warnings.push(depositWarning);
+    if (securityDepositWarning) warnings.push(securityDepositWarning);
+    if (warnings.length) responsePayload.warning = warnings.join(' ');
 
     return ContentService
       .createTextOutput(JSON.stringify(responsePayload))
@@ -320,6 +346,65 @@ function processDepositForPayment(ss, paidByLower, rawAmount) {
   }
 
   addAmountToDepositCell(sheet, row, VALUE_COL, rawAmount);
+}
+
+// ---- Security deposit tracking (the checkbox/dropdown added to the intake
+// form -- NOT the same thing as processDepositForPayment above, which tracks
+// running Wise/Revolut payment totals in fixed cells L11/L12). This instead
+// logs each Scan/Wise/Revolut security deposit as its own row in a growing
+// table on the current month's sheet:
+//   Scan    -> N (date), O (amount), P (name)
+//   Wise    -> Q (date), R (amount), S (name)
+//   Revolut -> U (date), V (amount), W (name)
+// Cash and Passport deposits need no logging here -- they're just noted on
+// the customer row itself.
+//
+// Starting at row 2, finds the first row where both the amount and name
+// cells are empty and writes there. Stops (and throws, so the intake
+// response carries a warning rather than failing silently) if it reaches a
+// row labelled "total" in the date column, so an existing totals row never
+// gets overwritten. ----
+function logSecurityDeposit(ss, methodLower, rawAmount, customerName) {
+  var COLUMNS_BY_METHOD = {
+    scan:    { date: 14, amount: 15, name: 16 }, // N, O, P
+    wise:    { date: 17, amount: 18, name: 19 }, // Q, R, S
+    revolut: { date: 21, amount: 22, name: 23 }  // U, V, W
+  };
+  var cols = COLUMNS_BY_METHOD[methodLower];
+  if (!cols) return; // Cash/Passport/unrecognized -- nothing to log.
+
+  var sheet = getCurrentMonthSheet(ss);
+  if (!sheet) {
+    throw new Error('No sheet found for the current month -- could not log the ' + methodLower + ' deposit.');
+  }
+
+  var maxRow = sheet.getMaxRows();
+  var rowsToScan = maxRow - 1; // Starting from row 2.
+  var dateColValues = sheet.getRange(2, cols.date, rowsToScan, 1).getValues();
+  var amountColValues = sheet.getRange(2, cols.amount, rowsToScan, 1).getValues();
+  var nameColValues = sheet.getRange(2, cols.name, rowsToScan, 1).getValues();
+
+  var targetRow = null;
+  for (var i = 0; i < amountColValues.length; i++) {
+    var dateLabel = (dateColValues[i][0] || '').toString().trim().toLowerCase();
+    if (dateLabel === 'total') break; // Don't write into or past the totals row.
+
+    var amtEmpty = amountColValues[i][0] === '' || amountColValues[i][0] === null;
+    var nameEmpty = nameColValues[i][0] === '' || nameColValues[i][0] === null;
+    if (amtEmpty && nameEmpty) {
+      targetRow = i + 2;
+      break;
+    }
+  }
+
+  if (!targetRow) {
+    throw new Error('Could not find a free row above the totals row in the ' + methodLower +
+      ' deposit section of "' + sheet.getName() + '" -- the deposit was NOT logged.');
+  }
+
+  sheet.getRange(targetRow, cols.date).setValue(new Date());
+  sheet.getRange(targetRow, cols.amount).setValue(Number(rawAmount) || rawAmount || '');
+  sheet.getRange(targetRow, cols.name).setValue(customerName || '');
 }
 
 // ---- Update one row in the Parts and Oil change tab ----
