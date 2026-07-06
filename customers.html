@@ -575,6 +575,55 @@ form.addEventListener('submit', async (e) => {
 
 setDefaultsToNow();
 
+// ---- Prefill from a redirect (e.g. the "Extend" flow on Bikes Status,
+// which closes out a long-extension booking and sends the customer here
+// to start a fresh rental record for the new period). Query params
+// override the "now" defaults set above where present. ----
+function prefillFromQueryParams() {
+  const qp = new URLSearchParams(window.location.search);
+  if (![...qp.keys()].length) return;
+
+  const setVal = (id, key) => {
+    if (qp.has(key)) document.getElementById(id).value = qp.get(key) || '';
+  };
+
+  setVal('name', 'name');
+  setVal('nationality', 'nationality');
+  setVal('passport', 'passport');
+  setVal('bikeModel', 'bikeModel');
+  setVal('rentingDateFrom', 'rentingDateFrom');
+  setVal('returnDate', 'returnDate');
+  setVal('returnTime', 'returnTime');
+  setVal('deliverToHotel', 'deliverToHotel');
+  setVal('totalPrice', 'totalPrice');
+  setVal('paidBy', 'paidBy');
+
+  // Contact is a <select> plus a free-text "other" fallback — try to match
+  // the incoming value to one of the fixed options, otherwise drop it into
+  // the "Other…" field so nothing gets silently lost.
+  if (qp.has('contact')) {
+    const raw = qp.get('contact') || '';
+    // Strip off the "(price, N days) Deal" suffix this app itself appends
+    // when it originally saved this contact value, so re-editing doesn't
+    // double it up.
+    const baseContact = raw.replace(/\s*\([^()]*\)(?:\s*Deal)?\s*$/i, '').trim();
+    const knownValues = Array.from(contactSelect.options).map(o => o.value);
+    if (baseContact && knownValues.includes(baseContact)) {
+      contactSelect.value = baseContact;
+    } else if (baseContact) {
+      contactSelect.value = 'other';
+      contactOther.classList.remove('hidden');
+      contactOther.required = true;
+      contactOther.value = baseContact;
+    }
+  }
+
+  statusBox.textContent = 'Prefilled from an extended rental — check the details, then save.';
+  statusBox.className = 'status ok';
+}
+
+prefillFromQueryParams();
+
 /* ---------------- Search / autocomplete ---------------- */
 
 const tabAdd = document.getElementById('tabAdd');

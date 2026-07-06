@@ -35,6 +35,9 @@ function doPost(e) {
     if (data.action === 'extendBike') {
       return extendBikeRow(data);
     }
+    if (data.action === 'closeBikeForExtend') {
+      return closeBikeForExtend(data);
+    }
 
     // ---- Customer-intake behavior ----
     var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -197,10 +200,14 @@ function markBikeReturned(data) {
   }
 }
 
-// ---- Update one row in the customer tab: called from the "Extend" button
-// on the Bikes Status page. Adds the given number of days onto whatever
-// return date is currently in the sheet, and appends the newly paid amount
-// onto the total price as a "=oldValue+amountPaid" formula. ----
+// ---- Update one row in the customer tab: called from the "Extend" flow
+// on the Bikes Status page for SHORT extensions only (under 30 days, and
+// the "Extend 1 month" checkbox not ticked). Adds the given number of days
+// onto whatever return date is currently in the sheet, and appends the
+// newly paid amount onto the total price as a "=oldValue+amountPaid"
+// formula. Longer extensions (1 month, or 30+ days) instead go through
+// closeBikeForExtend() and a brand-new customer-intake row — see the
+// "Extend" button's client-side logic in bikes.html. ----
 function extendBikeRow(data) {
   try {
     var rowNumber = parseInt(data.rowNumber, 10);
@@ -242,6 +249,41 @@ function extendBikeRow(data) {
     var priceCell = sheet.getRange(rowNumber, CUSTOMER_TOTAL_PRICE_COL);
     var currentPrice = Number(priceCell.getValue()) || 0;
     priceCell.setFormula('=' + currentPrice + '+' + amountPaid);
+
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: true }))
+      .setMimeType(ContentService.MimeType.JSON);
+
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: false, error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+// ---- Update one row in the customer tab: called from the "Extend" flow
+// on the Bikes Status page when the extension is long (1-month checkbox
+// ticked, or 30+ days typed in). Rather than pushing the due date on this
+// row, that flow closes this booking out — using its current due date,
+// left untouched, as the point it ended — and starts a brand-new rental
+// record for the extension period instead. This just flips "situation" to
+// "Returned"; it deliberately does NOT touch the return date column,
+// unlike markBikeReturned(). ----
+function closeBikeForExtend(data) {
+  try {
+    var rowNumber = parseInt(data.rowNumber, 10);
+    if (!rowNumber || rowNumber < 2) {
+      throw new Error('Invalid row number.');
+    }
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName('customer');
+    if (!sheet) {
+      throw new Error('Sheet named "customer" not found in this spreadsheet.');
+    }
+
+    var CUSTOMER_SITUATION_COL = 14; // N: situation
+    sheet.getRange(rowNumber, CUSTOMER_SITUATION_COL).setValue('Returned');
 
     return ContentService
       .createTextOutput(JSON.stringify({ success: true }))
