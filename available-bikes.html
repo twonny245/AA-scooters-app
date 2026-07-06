@@ -315,7 +315,7 @@
     <div class="card" id="replyCard" style="display:none;">
       <div class="reply-box">
         <label class="f" for="replyText">Reply message</label>
-        <textarea id="replyText" readonly rows="12"></textarea>
+        <textarea id="replyText" rows="12"></textarea>
         <button type="button" class="btn copy-btn" id="copyReplyBtn">Copy Reply</button>
         <div class="status ok" id="copyStatus"></div>
       </div>
@@ -957,85 +957,38 @@ function replyDurationText(entry) {
   return days + (days === 1 ? ' day' : ' days');
 }
 
-// Just the model name (e.g. "Aerox", "GT") for the deposit summary, since
-// the make ("Yamaha") was already stated when the bike was introduced
-// earlier in the message — no need to repeat it there.
-function shortBikeLabel(entry) {
+// One bullet line per bike, e.g.
+// "Yamaha Aerox 155cc (Keyless): ฿1,800 (Deposit: ฿2,000)"
+function bikeLineText(entry) {
   const details = bikeDetails[entry.name] || {};
-  return details.model || entry.name;
-}
 
-function joinWithAnd(list) {
-  if (list.length === 1) return list[0];
-  if (list.length === 2) return `${list[0]} and ${list[1]}`;
-  return `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`;
-}
-
-// Builds one sentence describing a single bike offer. The very first bike
-// in the list reads like the original single-bike reply ("Yes we have a
-// ... available."); every bike after that reads as "We also have our ...
-// available." so the message flows as a set of options rather than
-// repeating the same opening line. Deposits are NOT mentioned per-bike
-// here — they're grouped into one summary sentence at the end instead.
-function describeBikeOffer(entry, isFirst) {
-  const details = bikeDetails[entry.name] || {};
   const nameParts = [];
   if (details.make) nameParts.push(details.make);
   if (details.model) nameParts.push(details.model);
+  if (details.cc) nameParts.push(details.cc);
   const displayName = nameParts.length ? nameParts.join(' ') : entry.name;
 
   const specParts = [];
-  if (details.cc) specParts.push(details.cc);
-  if (details.key) specParts.push(details.key);
-  const bikeDesc = specParts.length ? `${displayName}, ${specParts.join(' ')}` : displayName;
+  if ((details.key || '').toString().trim()) specParts.push(details.key.toString().trim());
+  if ((details.box || '').toString().trim().toLowerCase() === 'yes') specParts.push('Top Box');
+  const specText = specParts.length ? ` (${specParts.join(' + ')})` : '';
 
-  const intro = isFirst
-    ? `Yes we have a ${bikeDesc} bike available.`
-    : `We also have our ${bikeDesc} bike available.`;
+  const depositText = formatDepositText(details.deposit);
+  const depositPart = depositText ? ` (Deposit: ${depositText})` : '';
 
-  let sentence = `${intro} It will be ${fmt(entry.price)} for ${replyDurationText(entry)}.`;
-
-  if ((details.box || '').toString().trim().toLowerCase() === 'yes') {
-    sentence += ` This model also comes with a handy top box for extra storage.`;
-  }
-
-  return sentence;
-}
-
-// One combined sentence per distinct deposit amount, e.g.
-// "For the GT, Aerox and Nmax, the deposit is ฿2,000. For the Forza, the
-// deposit is ฿3,000." Bikes with no deposit set are simply left out.
-function buildDepositSummary(entries) {
-  const groups = {};
-  const order = [];
-
-  entries.forEach(e => {
-    const details = bikeDetails[e.name] || {};
-    const depositText = formatDepositText(details.deposit);
-    if (!depositText) return;
-    if (!groups[depositText]) {
-      groups[depositText] = [];
-      order.push(depositText);
-    }
-    groups[depositText].push(shortBikeLabel(e));
-  });
-
-  if (!order.length) return '';
-
-  return order
-    .map(depositText => `For the ${joinWithAnd(groups[depositText])}, the deposit is ${depositText}.`)
-    .join(' ');
+  return `• ${displayName}${specText}: ${fmt(entry.price)}${depositPart}`;
 }
 
 function buildReplyTextMulti(entries) {
   if (!entries.length) return '';
-  const sentences = entries.map((e, i) => describeBikeOffer(e, i === 0));
-  let message = `Thanks for getting in touch! ${sentences.join(' ')}`;
 
-  const depositSummary = buildDepositSummary(entries);
-  if (depositSummary) message += ` ${depositSummary}`;
+  const duration = replyDurationText(entries[0]);
+  const bikeWord = entries.length === 1 ? 'bike' : 'bikes';
+  const header = `Thanks for getting in touch! We have the following ${bikeWord} available for ${duration}:`;
 
-  return message;
+  const lines = entries.map(bikeLineText).join('\n');
+
+  return `${header}\n\n${lines}\n\nLet us know which one you're interested in, and we'll be happy to help!`;
 }
 
 function autoGrowReplyText() {
@@ -1043,6 +996,7 @@ function autoGrowReplyText() {
   el.style.height = 'auto';
   el.style.height = el.scrollHeight + 'px';
 }
+document.getElementById('replyText').addEventListener('input', autoGrowReplyText);
 
 document.getElementById('copyReplyBtn').addEventListener('click', () => {
   const textarea = document.getElementById('replyText');
