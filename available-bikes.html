@@ -986,11 +986,13 @@ function bikeLineText(entry) {
 function buildReplyTextMulti(entries) {
   if (!entries.length) return '';
 
-  const duration = replyDurationText(entries[0]);
-  const bikeWord = entries.length === 1 ? 'bike' : 'bikes';
+  const sorted = entries.slice().sort((a, b) => a.price - b.price);
+
+  const duration = replyDurationText(sorted[0]);
+  const bikeWord = sorted.length === 1 ? 'bike' : 'bikes';
   const header = `Thanks for getting in touch! We have the following ${bikeWord} available for ${duration}:`;
 
-  const lines = entries.map(bikeLineText).join('\n');
+  const lines = sorted.map(bikeLineText).join('\n');
 
   return `${header}\n\n${lines}\n\nLet us know which one you're interested in, and we'll be happy to help!`;
 }
