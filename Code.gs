@@ -32,6 +32,9 @@ function doPost(e) {
     if (data.action === 'markReturned') {
       return markBikeReturned(data);
     }
+    if (data.action === 'extendBike') {
+      return extendBikeRow(data);
+    }
 
     // ---- Customer-intake behavior ----
     var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -182,6 +185,63 @@ function markBikeReturned(data) {
     dateCell.setFontColor('#000000');
 
     sheet.getRange(rowNumber, CUSTOMER_SITUATION_COL).setValue('Returned');
+
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: true }))
+      .setMimeType(ContentService.MimeType.JSON);
+
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: false, error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+// ---- Update one row in the customer tab: called from the "Extend" button
+// on the Bikes Status page. Adds the given number of days onto whatever
+// return date is currently in the sheet, and appends the newly paid amount
+// onto the total price as a "=oldValue+amountPaid" formula. ----
+function extendBikeRow(data) {
+  try {
+    var rowNumber = parseInt(data.rowNumber, 10);
+    if (!rowNumber || rowNumber < 2) {
+      throw new Error('Invalid row number.');
+    }
+    var daysToExtend = parseInt(data.daysToExtend, 10);
+    if (!daysToExtend || daysToExtend <= 0) {
+      throw new Error('Days to extend must be a positive number.');
+    }
+    var amountPaid = parseFloat(data.amountPaid);
+    if (isNaN(amountPaid) || amountPaid < 0) {
+      throw new Error('Amount paid must be a number.');
+    }
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName('customer');
+    if (!sheet) {
+      throw new Error('Sheet named "customer" not found in this spreadsheet.');
+    }
+
+    var CUSTOMER_RETURN_DATE_COL = 9;  // I: Return date
+    var CUSTOMER_TOTAL_PRICE_COL = 12; // L: total price
+
+    var dateCell = sheet.getRange(rowNumber, CUSTOMER_RETURN_DATE_COL);
+    var currentDateValue = dateCell.getValue();
+    var currentDate = currentDateValue instanceof Date ? new Date(currentDateValue.getTime()) : null;
+    if (!currentDate) {
+      // Fall back to parsing a dd/MM/yyyy string, in case the cell isn't a real Date.
+      var m = String(currentDateValue).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+      if (!m) {
+        throw new Error('Could not read the current return date to extend from.');
+      }
+      currentDate = new Date(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10));
+    }
+    currentDate.setDate(currentDate.getDate() + daysToExtend);
+    dateCell.setValue(currentDate);
+
+    var priceCell = sheet.getRange(rowNumber, CUSTOMER_TOTAL_PRICE_COL);
+    var currentPrice = Number(priceCell.getValue()) || 0;
+    priceCell.setFormula('=' + currentPrice + '+' + amountPaid);
 
     return ContentService
       .createTextOutput(JSON.stringify({ success: true }))

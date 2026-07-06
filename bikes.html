@@ -134,7 +134,7 @@
   .bc-btn.cancel-return{ background:#fff; color:var(--muted); }
 
   .bc-actions-picker{ flex-wrap:wrap; }
-  .return-date-input{
+  .picker-input{
     flex:1 1 100%; padding:9px 10px; border:1px solid var(--line); border-radius:8px;
     font-size:14px; font-family:'Inter',sans-serif; background:#fff; color:var(--ink);
   }
@@ -373,8 +373,10 @@ function highlight(value, query) {
   return out;
 }
 
-let openReturnRowNumber = null;   // rowNumber whose inline date-picker is currently showing
-let savingReturnRowNumber = null; // rowNumber currently being saved (shows "Saving…")
+let openReturnRowNumber = null;   // rowNumber whose inline return date-picker is showing
+let savingReturnRowNumber = null; // rowNumber currently being saved as returned
+let openExtendRowNumber = null;   // rowNumber whose inline extend form is showing
+let savingExtendRowNumber = null; // rowNumber currently being saved as extended
 
 function todayIso() {
   const d = new Date();
@@ -386,14 +388,26 @@ function todayIso() {
 
 function renterActionsHtml(renter) {
   const rowNumber = renter.rowNumber;
-  const isSaving = savingReturnRowNumber === rowNumber;
 
   if (openReturnRowNumber === rowNumber) {
+    const isSaving = savingReturnRowNumber === rowNumber;
     return `
       <div class="bc-actions bc-actions-picker">
-        <input type="date" class="return-date-input" id="returnDateInput-${rowNumber}" value="${todayIso()}" ${isSaving ? 'disabled' : ''}>
+        <input type="date" class="picker-input" id="returnDateInput-${rowNumber}" value="${todayIso()}" ${isSaving ? 'disabled' : ''}>
         <button class="bc-btn confirm-return" data-row="${rowNumber}" ${isSaving ? 'disabled' : ''}>${isSaving ? 'Saving…' : 'Confirm'}</button>
         <button class="bc-btn cancel-return" data-row="${rowNumber}" ${isSaving ? 'disabled' : ''}>Cancel</button>
+      </div>
+    `;
+  }
+
+  if (openExtendRowNumber === rowNumber) {
+    const isSaving = savingExtendRowNumber === rowNumber;
+    return `
+      <div class="bc-actions bc-actions-picker">
+        <input type="number" min="1" step="1" class="picker-input" id="extendDaysInput-${rowNumber}" placeholder="Days to extend" ${isSaving ? 'disabled' : ''}>
+        <input type="number" min="0" step="any" class="picker-input" id="extendAmountInput-${rowNumber}" placeholder="Amount paid (฿)" ${isSaving ? 'disabled' : ''}>
+        <button class="bc-btn confirm-extend" data-row="${rowNumber}" ${isSaving ? 'disabled' : ''}>${isSaving ? 'Saving…' : 'Confirm'}</button>
+        <button class="bc-btn cancel-extend" data-row="${rowNumber}" ${isSaving ? 'disabled' : ''}>Cancel</button>
       </div>
     `;
   }
@@ -401,7 +415,7 @@ function renterActionsHtml(renter) {
   return `
     <div class="bc-actions">
       <button class="bc-btn return-btn" data-row="${rowNumber}">Return</button>
-      <button class="bc-btn extend-btn" disabled title="Coming soon">Extend</button>
+      <button class="bc-btn extend-btn" data-row="${rowNumber}">Extend</button>
     </div>
   `;
 }
@@ -558,6 +572,7 @@ document.getElementById('listBox').addEventListener('click', (e) => {
   const returnBtn = e.target.closest('.return-btn');
   if (returnBtn) {
     openReturnRowNumber = parseInt(returnBtn.dataset.row, 10);
+    openExtendRowNumber = null;
     render();
     return;
   }
@@ -579,6 +594,40 @@ document.getElementById('listBox').addEventListener('click', (e) => {
       return;
     }
     confirmReturn(rowNumber, isoDate);
+    return;
+  }
+
+  const extendBtn = e.target.closest('.extend-btn');
+  if (extendBtn) {
+    openExtendRowNumber = parseInt(extendBtn.dataset.row, 10);
+    openReturnRowNumber = null;
+    render();
+    return;
+  }
+
+  const cancelExtendBtn = e.target.closest('.cancel-extend');
+  if (cancelExtendBtn) {
+    openExtendRowNumber = null;
+    render();
+    return;
+  }
+
+  const confirmExtendBtn = e.target.closest('.confirm-extend');
+  if (confirmExtendBtn) {
+    const rowNumber = parseInt(confirmExtendBtn.dataset.row, 10);
+    const daysInput = document.getElementById('extendDaysInput-' + rowNumber);
+    const amountInput = document.getElementById('extendAmountInput-' + rowNumber);
+    const days = daysInput ? parseInt(daysInput.value, 10) : NaN;
+    const amount = amountInput ? parseFloat(amountInput.value) : NaN;
+    if (!days || days <= 0) {
+      alert('Enter how many days to extend.');
+      return;
+    }
+    if (isNaN(amount) || amount < 0) {
+      alert('Enter the amount paid.');
+      return;
+    }
+    confirmExtend(rowNumber, days, amount);
   }
 });
 
@@ -602,6 +651,29 @@ function confirmReturn(rowNumber, isoDate) {
       savingReturnRowNumber = null;
       render();
       alert('Could not mark as returned: ' + err.message);
+    });
+}
+
+function confirmExtend(rowNumber, daysToExtend, amountPaid) {
+  savingExtendRowNumber = rowNumber;
+  render();
+
+  fetch(scriptUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action: 'extendBike', rowNumber: rowNumber, daysToExtend: daysToExtend, amountPaid: amountPaid })
+  })
+    .then(res => res.json())
+    .then(result => {
+      if (!result.success) throw new Error(result.error || 'Could not save.');
+      openExtendRowNumber = null;
+      savingExtendRowNumber = null;
+      return loadData();
+    })
+    .catch(err => {
+      savingExtendRowNumber = null;
+      render();
+      alert('Could not extend: ' + err.message);
     });
 }
 
