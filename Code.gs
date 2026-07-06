@@ -174,6 +174,7 @@ function markBikeReturned(data) {
     }
 
     var CUSTOMER_RETURN_DATE_COL = 9;  // I: Return date
+    var CUSTOMER_RETURN_TIME_COL = 10; // J: Return time
     var CUSTOMER_SITUATION_COL = 14;   // N: situation
 
     var m = String(data.returnDate).trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
@@ -186,6 +187,11 @@ function markBikeReturned(data) {
     var dateCell = sheet.getRange(rowNumber, CUSTOMER_RETURN_DATE_COL);
     dateCell.setValue(dateValue);
     dateCell.setFontColor('#000000');
+
+    // The return time cell is often left red by the same earlier
+    // conditional/manual formatting as the return date, so it's normalized
+    // to black here too, not just the date.
+    sheet.getRange(rowNumber, CUSTOMER_RETURN_TIME_COL).setFontColor('#000000');
 
     sheet.getRange(rowNumber, CUSTOMER_SITUATION_COL).setValue('Returned');
 
@@ -267,10 +273,10 @@ function extendBikeRow(data) {
 // row, that flow closes this booking out — using its current due date,
 // left untouched, as the point it ended — and starts a brand-new rental
 // record for the extension period instead. This just flips "situation" to
-// "Returned" and normalizes the return date's font color (it's sometimes
-// red from earlier conditional/manual formatting, same fix markBikeReturned
-// applies); it deliberately does NOT change the return date's value,
-// unlike markBikeReturned(). ----
+// "Returned" and normalizes the return date's and return time's font color
+// (they're sometimes red from earlier conditional/manual formatting, same
+// fix markBikeReturned applies); it deliberately does NOT change the
+// return date's value, unlike markBikeReturned(). ----
 function closeBikeForExtend(data) {
   try {
     var rowNumber = parseInt(data.rowNumber, 10);
@@ -285,9 +291,11 @@ function closeBikeForExtend(data) {
     }
 
     var CUSTOMER_RETURN_DATE_COL = 9;  // I: Return date
+    var CUSTOMER_RETURN_TIME_COL = 10; // J: Return time
     var CUSTOMER_SITUATION_COL = 14;   // N: situation
 
     sheet.getRange(rowNumber, CUSTOMER_RETURN_DATE_COL).setFontColor('#000000');
+    sheet.getRange(rowNumber, CUSTOMER_RETURN_TIME_COL).setFontColor('#000000');
     sheet.getRange(rowNumber, CUSTOMER_SITUATION_COL).setValue('Returned');
 
     return ContentService
@@ -409,6 +417,35 @@ function getBikePhotos(bikeName) {
   }
 }
 
+// ---- doGet: action = 'photoFolders' ----
+// Returns { success, folders: [{name, count}] } — every subfolder under
+// PHOTOS_ROOT_FOLDER_ID (one per bike that's ever had a photo uploaded)
+// with how many files are inside. Lets a page check photo coverage across
+// every bike in one round trip instead of one bikePhotos call per bike.
+function getPhotoFolders() {
+  try {
+    var root = DriveApp.getFolderById(PHOTOS_ROOT_FOLDER_ID);
+    var folders = root.getFolders();
+    var result = [];
+    while (folders.hasNext()) {
+      var folder = folders.next();
+      var count = 0;
+      var files = folder.getFiles();
+      while (files.hasNext()) { files.next(); count++; }
+      result.push({ name: folder.getName(), count: count });
+    }
+
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: true, folders: result }))
+      .setMimeType(ContentService.MimeType.JSON);
+
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: false, error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
 function columnLetter(col) {
   var letter = '';
   while (col > 0) {
@@ -430,6 +467,9 @@ function doGet(e) {
     }
     if (e.parameter.action === 'bikePhotos') {
       return getBikePhotos(e.parameter.bike);
+    }
+    if (e.parameter.action === 'photoFolders') {
+      return getPhotoFolders();
     }
 
     // ---- Customer-search behavior ----
