@@ -983,14 +983,44 @@ function bikeLineText(entry) {
   return `• ${displayName}${specText}: ${fmt(entry.price)}${depositPart}`;
 }
 
+// "5" -> "5th", "21" -> "21st", "12" -> "12th", etc.
+function ordinalDay(n) {
+  const suffixes = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (suffixes[(v - 20) % 10] || suffixes[v] || suffixes[0]);
+}
+
+function dayAndMonth(dateStr) {
+  const d = new Date(dateStr);
+  return { day: d.getDate(), month: d.toLocaleDateString('en-US', { month: 'long' }) };
+}
+
+// When real calendar dates were picked: "from the 5th to the 10th of July, 5 days"
+// (or "from the 28th of June to the 3rd of July, 5 days" across a month boundary).
+// Falls back to the plain duration phrasing ("for 5 days" / "for one month") when
+// only a day count was entered, with no calendar dates involved.
+function replyAvailabilityPhrase(entry) {
+  if (entry.from && entry.to) {
+    const start = dayAndMonth(entry.from);
+    const end = dayAndMonth(entry.to);
+    const days = daysBetween(entry.from, entry.to);
+    const dayWord = days === 1 ? 'day' : 'days';
+    const rangeText = start.month === end.month
+      ? `from the ${ordinalDay(start.day)} to the ${ordinalDay(end.day)} of ${start.month}`
+      : `from the ${ordinalDay(start.day)} of ${start.month} to the ${ordinalDay(end.day)} of ${end.month}`;
+    return `${rangeText}, ${days} ${dayWord}`;
+  }
+  return `for ${replyDurationText(entry)}`;
+}
+
 function buildReplyTextMulti(entries) {
   if (!entries.length) return '';
 
   const sorted = entries.slice().sort((a, b) => a.price - b.price);
 
-  const duration = replyDurationText(sorted[0]);
+  const availability = replyAvailabilityPhrase(sorted[0]);
   const bikeWord = sorted.length === 1 ? 'bike' : 'bikes';
-  const header = `Thanks for getting in touch! We have the following ${bikeWord} available for ${duration}:`;
+  const header = `Thanks for getting in touch! We have the following ${bikeWord} available ${availability}:`;
 
   const lines = sorted.map(bikeLineText).join('\n');
 
