@@ -949,11 +949,22 @@ async function proceedToOdoModal(processedDataUrl) {
   try {
     await loadTesseract();
     const worker = await Tesseract.createWorker('eng');
-    await worker.setParameters({ tessedit_char_whitelist: '0123456789' });
-    const { data: { text } } = await worker.recognize(processedDataUrl);
+
+    async function tryRead(psm) {
+      await worker.setParameters({ tessedit_char_whitelist: '0123456789', tessedit_pageseg_mode: psm });
+      const { data: { text } } = await worker.recognize(processedDataUrl);
+      return (text.match(/\d+/g) || []).sort((a, b) => b.length - a.length);
+    }
+
+    // PSM 7 = single line of text — right fit for a tight digit-strip crop.
+    // A tight crop has no paragraphs for Tesseract's default layout guesser
+    // to find, so without this hint it often returns noise instead of the
+    // actual digits. If that still comes up empty (e.g. a more skewed
+    // photo), fall back to PSM 6 (a single uniform block) before giving up.
+    let digitGroups = await tryRead('7');
+    if (!digitGroups.length) digitGroups = await tryRead('6');
     await worker.terminate();
 
-    const digitGroups = (text.match(/\d+/g) || []).sort((a, b) => b.length - a.length);
     if (digitGroups.length) {
       document.getElementById('odoKmInput').value = digitGroups[0];
       ocrStatus.textContent = 'Detected ' + digitGroups[0] + ' — check it against the photo before saving.';
