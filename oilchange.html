@@ -372,6 +372,18 @@ function findHeader(headers, name) {
   return headers.find(h => h.trim().toLowerCase() === name);
 }
 
+// Matches whichever name the "km reading" column currently has in the
+// sheet — old name or the renamed one — so this page keeps working
+// whether or not the header cell has been renamed yet.
+function findKmCheckHeader(headers) {
+  const candidates = ['last kilometers check', 'last km check', 'last oil check'];
+  for (const name of candidates) {
+    const match = headers.find(h => h.trim().toLowerCase().replace(/\s+/g, ' ') === name);
+    if (match) return match;
+  }
+  return null;
+}
+
 function cardHtml(row, headers, metricLabel, metricValue) {
   const bikeHeader = headers[0];
   const operationStatus = findOperationStatus(row[bikeHeader]);
@@ -379,7 +391,7 @@ function cardHtml(row, headers, metricLabel, metricValue) {
   const rClass = riskClass(status);
   const oilChange = row[findHeader(headers, 'oil change')] || '—';
   const nextOil = row[findHeader(headers, 'next oil change')] || '—';
-  const lastCheck = row[findHeader(headers, 'last oil check')] || '—';
+  const lastCheck = row[findKmCheckHeader(headers)] || '—';
   const daysSince = row[findHeader(headers, 'days since last oil change')] || '—';
 
   const renter = findCurrentRenter(row[bikeHeader]);
@@ -396,7 +408,7 @@ function cardHtml(row, headers, metricLabel, metricValue) {
       ${renterLine}
       <div class="bc-details">
         <b>Status:</b> ${status || '—'} &nbsp; <b>Oil change:</b> ${oilChange} &nbsp; <b>Days since:</b> ${daysSince}<br>
-        <b>Last oil check:</b> ${lastCheck} km &nbsp; <b>Next oil change:</b> ${nextOil} km
+        <b>Last kilometers check:</b> ${lastCheck} km &nbsp; <b>Next oil change:</b> ${nextOil} km
       </div>
     </a>
   `;
@@ -415,7 +427,7 @@ function render() {
 
   if (activeTab === 'km') {
     const nextH = findHeader(headers, 'next oil change');
-    const lastH = findHeader(headers, 'last oil check');
+    const lastH = findKmCheckHeader(headers);
 
     const withData = [];
     const withoutData = [];

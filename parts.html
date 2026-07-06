@@ -127,6 +127,49 @@
   .save-bar{
     position:sticky; bottom:0; margin-top:4px;
   }
+
+  .field-with-action{ display:flex; align-items:center; gap:8px; }
+  .field-with-action input{ flex:1; }
+  .camera-btn{
+    flex-shrink:0; width:44px; height:44px; border-radius:9px;
+    border:1px solid var(--line); background:#FBFAF7; cursor:pointer;
+    font-size:19px; display:flex; align-items:center; justify-content:center;
+    padding:0; margin-top:0;
+  }
+  .camera-btn:active{ transform:scale(.96); }
+
+  .modal-overlay{
+    position:fixed; inset:0; background:rgba(15,36,33,.55); z-index:1000;
+    display:none; align-items:flex-end; justify-content:center;
+  }
+  .modal-overlay.show{ display:flex; }
+  .modal-card{
+    background:var(--card); width:100%; max-width:520px; border-radius:18px 18px 0 0;
+    padding:20px; max-height:92vh; overflow-y:auto;
+  }
+  @media (min-width:560px){
+    .modal-overlay{ align-items:center; }
+    .modal-card{ border-radius:18px; }
+  }
+  .modal-card h3{
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:19px;
+    color:var(--petrol); margin:0 0 12px;
+  }
+  .modal-preview{
+    width:100%; max-height:240px; object-fit:contain; border-radius:10px;
+    border:1px solid var(--line); background:#000; margin-bottom:14px; display:block;
+  }
+  .ocr-status{
+    font-size:12.5px; color:var(--muted); margin:-6px 0 14px; display:flex; align-items:center; gap:6px;
+  }
+  .spinner{
+    width:13px; height:13px; border:2px solid var(--line); border-top-color:var(--cone);
+    border-radius:50%; animation:spin .7s linear infinite; flex-shrink:0;
+  }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+  .modal-actions{ display:flex; gap:10px; margin-top:18px; }
+  .modal-actions button{ margin-top:0; }
+  .modal-actions .cancel-btn{ background:#EFEAE0; color:var(--ink); }
 </style>
 </head>
 <body>
@@ -183,6 +226,36 @@
 
 </main>
 
+<input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none">
+<input type="file" id="libraryInput" accept="image/*" style="display:none">
+
+<div class="modal-overlay" id="sourceModal">
+  <div class="modal-card">
+    <h3>Speedometer reading</h3>
+    <div class="modal-actions" style="flex-direction:column;">
+      <button type="button" id="chooseCameraBtn">📷 Take a photo</button>
+      <button type="button" id="chooseLibraryBtn">🖼️ Upload a photo</button>
+      <button type="button" class="cancel-btn" id="chooseCancelBtn">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="odoModal">
+  <div class="modal-card">
+    <h3>Speedometer reading</h3>
+    <img id="odoPreview" class="modal-preview" alt="Speedometer photo">
+    <div class="ocr-status" id="ocrStatus"><div class="spinner"></div> Reading number from photo…</div>
+    <label for="odoKmInput">Last kilometers check</label>
+    <input id="odoKmInput" inputmode="numeric" placeholder="e.g. 24350">
+    <label for="odoDateInput">Date checked</label>
+    <input type="date" id="odoDateInput">
+    <div class="modal-actions">
+      <button type="button" class="cancel-btn" id="odoCancelBtn">Cancel</button>
+      <button type="button" id="odoConfirmBtn">Confirm &amp; save</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // Same Apps Script web app as the Customer Record page — it now also
 // serves/updates the "Parts and Oil change" tab via the `action` field.
@@ -192,6 +265,8 @@ let partsData = null;     // { headers: [...], rows: [...] }
 let keyHeader = null;     // the header used as the unique bike identifier (first column)
 let rowsPromise = null;
 let currentRow = null;    // the row object currently loaded into the edit form
+let kmHeaderName = null;  // actual sheet header for the km-reading field, for the current bike
+let dateHeaderName = null;// actual sheet header for the plain "Date" field, for the current bike
 
 function setLoadStatus(msg) {
   const el = document.getElementById('loadStatus');
@@ -368,6 +443,24 @@ function findNotesGroupStart(headers) {
   return headers.findIndex(h => h.trim().toLowerCase() === 'horn switch');
 }
 
+// Matches whichever name the "km reading" column currently has in the
+// sheet — old name or the renamed one — so this keeps working whether or
+// not the header cell has been renamed yet.
+function normalizeHeaderText(h) {
+  return (h || '').toString().trim().toLowerCase().replace(/\s+/g, ' ');
+}
+const KM_CHECK_HEADER_NAMES = ['last kilometers check', 'last km check', 'last oil check'];
+function findKmCheckHeader(headers) {
+  for (const name of KM_CHECK_HEADER_NAMES) {
+    const match = headers.find(h => normalizeHeaderText(h) === name);
+    if (match) return match;
+  }
+  return null;
+}
+function findExactDateHeader(headers) {
+  return headers.find(h => normalizeHeaderText(h) === 'date') || null;
+}
+
 function selectBike(bikeName) {
   const row = partsData.rows.find(r => r[keyHeader] === bikeName);
   if (!row) return;
@@ -388,6 +481,11 @@ function selectBike(bikeName) {
   // anything after that is folded into one combined Notes box.
   const individualEnd = notesStart === -1 ? headers.length : notesStart + 1;
 
+  const kmHeaderActual = findKmCheckHeader(headers);
+  const dateHeaderActual = findExactDateHeader(headers);
+  kmHeaderName = kmHeaderActual;
+  dateHeaderName = dateHeaderActual;
+
   headers.forEach((header, i) => {
     if (i === 0) return; // skip the bike-name column itself — that's the key, shown above
     if (i >= individualEnd) return; // handled by the Notes box below
@@ -397,7 +495,9 @@ function selectBike(bikeName) {
 
     const label = document.createElement('label');
     label.setAttribute('for', id);
-    label.textContent = header;
+    // The sheet column itself can stay named "Last oil check" — the GUI
+    // always shows the clearer "Last kilometers check" for this field.
+    label.textContent = (header === kmHeaderActual) ? 'Last kilometers check' : header;
     wrap.appendChild(label);
 
     if (header.trim().toLowerCase() === 'status') {
@@ -426,7 +526,24 @@ function selectBike(bikeName) {
       input.dataset.header = header;
       input.value = value;
       input.autocomplete = 'off';
-      wrap.appendChild(input);
+
+      if (header === kmHeaderActual) {
+        const fieldRow = document.createElement('div');
+        fieldRow.className = 'field-with-action';
+        fieldRow.appendChild(input);
+
+        const camBtn = document.createElement('button');
+        camBtn.type = 'button';
+        camBtn.className = 'camera-btn';
+        camBtn.title = 'Take a photo of the speedometer';
+        camBtn.textContent = '📷';
+        camBtn.addEventListener('click', () => openCameraFor(id));
+        fieldRow.appendChild(camBtn);
+
+        wrap.appendChild(fieldRow);
+      } else {
+        wrap.appendChild(input);
+      }
     }
 
     box.appendChild(wrap);
@@ -466,7 +583,7 @@ document.getElementById('changeBikeBtn').addEventListener('click', () => {
 
 // ---------------- Saving ----------------
 
-document.getElementById('saveBtn').addEventListener('click', async () => {
+async function performSave() {
   if (!currentRow) return;
   const saveBtn = document.getElementById('saveBtn');
   const statusBox = document.getElementById('statusBox');
@@ -520,6 +637,131 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
     saveBtn.disabled = false;
     saveBtn.textContent = 'Save changes';
   }
+}
+
+document.getElementById('saveBtn').addEventListener('click', performSave);
+
+// ---------------- Camera capture + auto-read for speedometer photos ----------------
+// This runs an OCR pass entirely in the browser (no server or API key
+// involved) restricted to digits. It's best-effort: whatever it reads is
+// shown as an editable starting point, never applied silently, since
+// speedometer photos (glare, angle, digit vs. needle dials) aren't always
+// clean reads.
+
+let ocrTargetKmFieldId = null;
+let tesseractLoadPromise = null;
+
+function loadTesseract() {
+  if (window.Tesseract) return Promise.resolve();
+  if (tesseractLoadPromise) return tesseractLoadPromise;
+  tesseractLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('reader library failed to load'));
+    document.head.appendChild(script);
+  });
+  return tesseractLoadPromise;
+}
+
+function openCameraFor(kmFieldId) {
+  ocrTargetKmFieldId = kmFieldId;
+  document.getElementById('sourceModal').classList.add('show');
+}
+
+document.getElementById('chooseCameraBtn').addEventListener('click', () => {
+  document.getElementById('sourceModal').classList.remove('show');
+  const input = document.getElementById('cameraInput');
+  input.value = '';
+  input.click();
+});
+document.getElementById('chooseLibraryBtn').addEventListener('click', () => {
+  document.getElementById('sourceModal').classList.remove('show');
+  const input = document.getElementById('libraryInput');
+  input.value = '';
+  input.click();
+});
+document.getElementById('chooseCancelBtn').addEventListener('click', () => {
+  document.getElementById('sourceModal').classList.remove('show');
+  ocrTargetKmFieldId = null;
+});
+
+function todayInputValue() {
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+}
+
+function handleSelectedFile(file) {
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = async () => {
+    const dataUrl = reader.result;
+    document.getElementById('odoPreview').src = dataUrl;
+    document.getElementById('odoKmInput').value = '';
+    document.getElementById('odoDateInput').value = todayInputValue();
+    document.getElementById('odoModal').classList.add('show');
+
+    const ocrStatus = document.getElementById('ocrStatus');
+    ocrStatus.style.display = 'flex';
+    ocrStatus.innerHTML = '<div class="spinner"></div> Reading number from photo…';
+
+    try {
+      await loadTesseract();
+      const worker = await Tesseract.createWorker('eng');
+      await worker.setParameters({ tessedit_char_whitelist: '0123456789' });
+      const { data: { text } } = await worker.recognize(dataUrl);
+      await worker.terminate();
+
+      const digitGroups = (text.match(/\d+/g) || []).sort((a, b) => b.length - a.length);
+      if (digitGroups.length) {
+        document.getElementById('odoKmInput').value = digitGroups[0];
+        ocrStatus.textContent = 'Detected ' + digitGroups[0] + ' — check it against the photo before saving.';
+      } else {
+        ocrStatus.textContent = 'Could not read a number automatically — type it in below.';
+      }
+    } catch (err) {
+      ocrStatus.textContent = 'Automatic reading unavailable — type the number in below.';
+    }
+  };
+  reader.readAsDataURL(file);
+}
+
+document.getElementById('cameraInput').addEventListener('change', (e) => {
+  handleSelectedFile(e.target.files && e.target.files[0]);
+});
+document.getElementById('libraryInput').addEventListener('change', (e) => {
+  handleSelectedFile(e.target.files && e.target.files[0]);
+});
+
+document.getElementById('odoCancelBtn').addEventListener('click', () => {
+  document.getElementById('odoModal').classList.remove('show');
+  ocrTargetKmFieldId = null;
+});
+
+document.getElementById('odoConfirmBtn').addEventListener('click', async () => {
+  const kmVal = document.getElementById('odoKmInput').value.trim();
+  const dateVal = document.getElementById('odoDateInput').value;
+
+  if (!kmVal) {
+    alert('Enter the kilometers reading before saving.');
+    return;
+  }
+  if (!ocrTargetKmFieldId) return;
+
+  const kmInput = document.getElementById(ocrTargetKmFieldId);
+  if (kmInput) kmInput.value = kmVal;
+
+  if (dateHeaderName) {
+    const dateInput = document.querySelector('#fieldsBox [data-header="' + CSS.escape(dateHeaderName) + '"]');
+    if (dateInput) dateInput.value = dateVal;
+  }
+
+  document.getElementById('odoModal').classList.remove('show');
+  ocrTargetKmFieldId = null;
+
+  await performSave();
 });
 </script>
 
