@@ -363,6 +363,10 @@ function loadBikeNames() {
       if (!data.success) throw new Error(data.error || 'Could not load bikes');
       const bikeHeader = data.headers[0];
       bikeNames = data.rows
+        // Struck-through rows are bikes already marked sold — they no
+        // longer need photos, so they're excluded from both search and
+        // the photo coverage check entirely.
+        .filter(r => !r.__struck)
         .map(r => (r[bikeHeader] || '').toString().trim())
         .filter(Boolean)
         .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
