@@ -751,20 +751,39 @@ const cropImage = document.getElementById('cropImage');
 const cropBox = document.getElementById('cropBox');
 const cropHandle = document.getElementById('cropHandle');
 
+function placeDefaultCropBox() {
+  // Default box: centered, roomy strip — odometer digits are usually
+  // wider than tall. offsetLeft/Top/Width/Height on the <img> are
+  // relative to .crop-stage (its nearest positioned ancestor), so this
+  // works regardless of letterboxing from the image's own aspect ratio.
+  // IMPORTANT: this only measures correctly once the modal is actually
+  // visible — a hidden (display:none) element always measures 0×0, which
+  // previously produced a zero-size, unusable crop box.
+  const iw = cropImage.offsetWidth, ih = cropImage.offsetHeight;
+  const ix = cropImage.offsetLeft, iy = cropImage.offsetTop;
+  const bw = Math.max(30, Math.round(iw * 0.7));
+  const bh = Math.max(20, Math.round(ih * 0.22));
+  setCropBoxRect(ix + Math.round((iw - bw) / 2), iy + Math.round((ih - bh) / 2), bw, bh);
+}
+
 function openCropModal(dataUrl) {
-  cropImage.onload = () => {
-    // Default box: centered, roomy strip — odometer digits are usually
-    // wider than tall. offsetLeft/Top/Width/Height on the <img> are
-    // relative to .crop-stage (its nearest positioned ancestor), so this
-    // works regardless of letterboxing from the image's own aspect ratio.
-    const iw = cropImage.offsetWidth, ih = cropImage.offsetHeight;
-    const ix = cropImage.offsetLeft, iy = cropImage.offsetTop;
-    const bw = Math.round(iw * 0.7);
-    const bh = Math.round(ih * 0.22);
-    setCropBoxRect(ix + Math.round((iw - bw) / 2), iy + Math.round((ih - bh) / 2), bw, bh);
-    document.getElementById('cropModal').classList.add('show');
+  // Show the modal first so the image has real, non-zero layout
+  // dimensions by the time we measure it.
+  document.getElementById('cropModal').classList.add('show');
+
+  const finish = () => {
+    // rAF gives the browser one paint tick to lay the now-visible modal
+    // out before we read offsetWidth/offsetHeight from it.
+    requestAnimationFrame(placeDefaultCropBox);
   };
-  cropImage.src = dataUrl;
+
+  if (cropImage.src === dataUrl && cropImage.complete && cropImage.naturalWidth) {
+    // Same image already loaded (rare, but onload won't refire) — place directly.
+    finish();
+  } else {
+    cropImage.onload = finish;
+    cropImage.src = dataUrl;
+  }
 }
 
 function getImageDisplayRect() {
@@ -893,12 +912,27 @@ function buildProcessedImage(sourceRectOrNull) {
 
 document.getElementById('cropConfirmBtn').addEventListener('click', () => {
   const rect = getCropBoxRect();
-  document.getElementById('cropModal').classList.remove('show');
-  proceedToOdoModal(buildProcessedImage(rect));
+  if (!rect.width || !rect.height || rect.width < 10 || rect.height < 10) {
+    alert('The crop box looks too small — drag the orange corner to make it bigger, then try again.');
+    return;
+  }
+  try {
+    const processed = buildProcessedImage(rect);
+    document.getElementById('cropModal').classList.remove('show');
+    proceedToOdoModal(processed);
+  } catch (err) {
+    alert('Could not use that crop (' + err.message + ') — try adjusting the box, or use the full photo instead.');
+  }
 });
 document.getElementById('cropSkipBtn').addEventListener('click', () => {
-  document.getElementById('cropModal').classList.remove('show');
-  proceedToOdoModal(buildProcessedImage(null));
+  try {
+    const processed = buildProcessedImage(null);
+    document.getElementById('cropModal').classList.remove('show');
+    proceedToOdoModal(processed);
+  } catch (err) {
+    document.getElementById('cropModal').classList.remove('show');
+    alert('Could not process that photo (' + err.message + ').');
+  }
 });
 
 // ---- Step 4: show the (cropped + processed) image and run OCR on it ----
