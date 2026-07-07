@@ -8,6 +8,7 @@
 var PARTS_SHEET_NAME = 'Parts and Oil change';
 var OPERATION_SHEET_NAME = 'Operation';
 var BIKE_TAX_SHEET_NAME = 'Bike Tax';
+var BIKES_SHEET_NAME = 'bikes';
 
 // ID of the Drive folder that holds one subfolder per bike, full of that
 // bike's photos. Get this from the folder's URL:
@@ -105,6 +106,19 @@ function doPost(e) {
       // Swallow -- customer record is already saved; the cash row is best-effort.
     }
 
+    // Also roll this rental's amount into the bike's own running total for
+    // the current month on the "bikes" sheet (e.g. "=2000+2500+2800"), so
+    // that sheet keeps tracking income per bike per month. Any problem here
+    // (bike name / month column not found, etc.) is surfaced as a warning
+    // below rather than breaking customer intake, which has already succeeded.
+    var bikesSheetWarning = null;
+    try {
+      addRentalAmountToBikesSheet(ss, data.bikeModel, data.totalPrice);
+    } catch (bikesErr) {
+      bikesSheetWarning = bikesErr.message;
+      Logger.log('Bikes sheet update warning: ' + bikesErr.message);
+    }
+
     // If paid by Wise or Revolut, add the amount into that method's
     // deposit-tracking cell on the current month's sheet (self-locating via
     // the label in column K), as a running "=X+Y" formula. If the label
@@ -146,6 +160,7 @@ function doPost(e) {
     var warnings = [];
     if (depositWarning) warnings.push(depositWarning);
     if (securityDepositWarning) warnings.push(securityDepositWarning);
+    if (bikesSheetWarning) warnings.push(bikesSheetWarning);
     if (warnings.length) responsePayload.warning = warnings.join(' ');
 
     return ContentService
@@ -315,6 +330,132 @@ function addAmountToDepositCell(sheet, row, col, rawAmount) {
     range.setFormula('=' + amount);
   } else {
     range.setFormula('=' + Number(currentValue) + '+' + amount);
+  }
+}
+
+// ---- Same fuzzy bike-name matching used client-side in bikes.html and
+// bike-name-audit.html, ported here so server-side income logging matches
+// the same bike a customer row displays under (e.g. "Aerox Cool 1 (black)"
+// on the customer sheet should still land on the "aerox cool 1" row of the
+// "bikes" sheet, and "GT Black" should NOT be confused with "GT Black 2"). ----
+function normalizeBikeNameForRentalLog(s) {
+  return (s || '').toString()
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+var RENTAL_LOG_DISTINGUISHING_SUFFIXES = {
+  'one':1,'two':1,'three':1,'four':1,'five':1,'six':1,'seven':1,'eight':1,'nine':1,'ten':1,
+  'i':1,'ii':1,'iii':1,'iv':1,'v':1,'vi':1,'vii':1,'viii':1,'ix':1,'x':1,
+  '1':1,'2':1,'3':1,'4':1,'5':1,'6':1,'7':1,'8':1,'9':1,'10':1
+};
+function bikeNamesMatchForRentalLog(a, b) {
+  var na = normalizeBikeNameForRentalLog(a);
+  var nb = normalizeBikeNameForRentalLog(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+
+  var ta = na.split(' ');
+  var tb = nb.split(' ');
+  var shorter = ta.length <= tb.length ? ta : tb;
+  var longer = ta.length <= tb.length ? tb : ta;
+
+  var isPrefix = true;
+  for (var i = 0; i < shorter.length; i++) {
+    if (shorter[i] !== longer[i]) { isPrefix = false; break; }
+  }
+  if (isPrefix) {
+    var extra = longer.slice(shorter.length);
+    for (var j = 0; j < extra.length; j++) {
+      if (RENTAL_LOG_DISTINGUISHING_SUFFIXES[extra[j]]) return false;
+    }
+    return true;
+  }
+
+  return na.indexOf(nb) !== -1 || nb.indexOf(na) !== -1;
+}
+
+// ---- Finds the column on the "bikes" sheet matching the current month
+// (e.g. "June"), by comparing header row 1 case-insensitively. The sheet's
+// headers are sometimes abbreviated/mixed-case ("April", "july", "sept"),
+// so this matches on the first 3 letters of the month name rather than
+// requiring an exact match. Returns -1 if no column matches. ----
+function findBikesSheetMonthColumn(sheet, monthName) {
+  var lastCol = sheet.getLastColumn();
+  var headerRow = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var targetShort = monthName.toString().trim().toLowerCase().slice(0, 3);
+  for (var c = 0; c < headerRow.length; c++) {
+    var h = (headerRow[c] || '').toString().trim().toLowerCase();
+    if (h && h.slice(0, 3) === targetShort) return c + 1;
+  }
+  return -1;
+}
+
+// ---- Finds the row on the "bikes" sheet whose column A bike name
+// fuzzy-matches the given bike name. Returns -1 if no row matches. ----
+function findBikesSheetRow(sheet, bikeName) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return -1;
+  var names = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  for (var i = 0; i < names.length; i++) {
+    if (bikeNamesMatchForRentalLog(names[i][0], bikeName)) return i + 2;
+  }
+  return -1;
+}
+
+// ---- Adds a rental/extension amount into the bike's cell for the current
+// month on the "bikes" sheet, so each bike's monthly income total keeps
+// growing as a visible running formula (e.g. "=2000+2500+2800") every time
+// it's rented or extended -- same running-formula approach already used for
+// the Wise/Revolut deposit totals in addAmountToDepositCell(). If the cell
+// is empty, the formula becomes "=amount". If it already holds a formula,
+// "+amount" is appended. If it holds a plain (non-formula) number, that
+// number becomes the first term of a new "=existing+amount" formula, so
+// nothing already there is lost. Throws (rather than silently doing
+// nothing) if the "bikes" sheet, the bike's row, or the month's column
+// can't be found, so a naming mismatch surfaces as a warning instead of
+// quietly skipping the update. ----
+function addRentalAmountToBikesSheet(ss, bikeModel, rawAmount) {
+  var amount = Number(rawAmount);
+  if (rawAmount === '' || rawAmount === null || rawAmount === undefined || isNaN(amount)) return;
+
+  var sheet = ss.getSheetByName(BIKES_SHEET_NAME);
+  if (!sheet) {
+    throw new Error('Sheet named "' + BIKES_SHEET_NAME + '" not found -- bike monthly total was NOT updated.');
+  }
+
+  var bikeNameTrimmed = (bikeModel || '').toString().trim();
+  if (!bikeNameTrimmed) {
+    throw new Error('No bike name given -- bike monthly total was NOT updated.');
+  }
+
+  var row = findBikesSheetRow(sheet, bikeNameTrimmed);
+  if (row === -1) {
+    throw new Error('Could not find a row for "' + bikeNameTrimmed + '" on the "' + BIKES_SHEET_NAME +
+      '" sheet -- its monthly total was NOT updated.');
+  }
+
+  var monthName = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'MMMM'); // e.g. "July"
+  var col = findBikesSheetMonthColumn(sheet, monthName);
+  if (col === -1) {
+    throw new Error('Could not find a "' + monthName + '" column on the "' + BIKES_SHEET_NAME +
+      '" sheet -- "' + bikeNameTrimmed + '"\'s monthly total was NOT updated.');
+  }
+
+  var cell = sheet.getRange(row, col);
+  var formula = cell.getFormula();
+  if (formula && formula.charAt(0) === '=') {
+    cell.setFormula(formula + '+' + amount);
+    return;
+  }
+
+  var currentValue = cell.getValue();
+  if (currentValue === '' || currentValue === null || isNaN(Number(currentValue))) {
+    cell.setFormula('=' + amount);
+  } else {
+    cell.setFormula('=' + Number(currentValue) + '+' + amount);
   }
 }
 
@@ -632,6 +773,12 @@ function extendBikeRow(data) {
       }
     } catch (depositErr) {
       warnings.push('Deposit total: ' + depositErr.message);
+    }
+
+    try {
+      addRentalAmountToBikesSheet(ss, bikeModel, amountPaid);
+    } catch (bikesErr) {
+      warnings.push('Bikes sheet: ' + bikesErr.message);
     }
 
     var responsePayload = { success: true };
