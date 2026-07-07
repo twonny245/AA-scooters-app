@@ -181,15 +181,6 @@
 
   .hidden{ display:none; }
 
-  .coverage-btn{
-    width:100%; padding:12px; border:1px solid var(--line); border-radius:10px;
-    background:var(--card); color:var(--petrol);
-    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:14px;
-    letter-spacing:.03em; text-transform:uppercase; cursor:pointer; margin-top:10px;
-  }
-  .coverage-btn:active{ transform:scale(.98); }
-  .coverage-btn:disabled{ opacity:.6; }
-
   .coverage-panel{ margin-top:14px; }
   .coverage-summary{
     display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px;
@@ -236,6 +227,7 @@
     <a href="bikes.html">Bikes Status</a>
     <a href="bikephotos.html" class="active">Bike Photos</a>
     <a href="available-bikes.html">Available Bikes</a>
+    <a href="accounts.html">Accounts</a>
   </nav>
 </div>
 
@@ -251,7 +243,6 @@
       <div class="ac-list" id="bikeAcList"></div>
     </div>
     <div class="load-status" id="loadStatus">Loading bikes…</div>
-    <button type="button" class="coverage-btn" id="coverageBtn">Check photo coverage</button>
     <div class="load-status" id="coverageLoadStatus"></div>
     <div class="coverage-panel hidden" id="coveragePanel"></div>
   </div>
@@ -311,7 +302,6 @@ const progressCount = document.getElementById('progressCount');
 const lightbox = document.getElementById('lightbox');
 const lightboxImg = document.getElementById('lightboxImg');
 const lightboxClose = document.getElementById('lightboxClose');
-const coverageBtn = document.getElementById('coverageBtn');
 const coveragePanel = document.getElementById('coveragePanel');
 
 function openLightbox(url) {
@@ -636,7 +626,6 @@ function setCoverageStatus(msg) {
 }
 
 function runCoverageCheck() {
-  coverageBtn.disabled = true;
   setCoverageStatus('Checking bikes and photo folders…');
   coveragePanel.classList.add('hidden');
 
@@ -672,7 +661,9 @@ function runCoverageCheck() {
 
     html.push(`<div class="coverage-section"><h3>Needs photos</h3>`);
     if (missing.length) {
-      missing.forEach(name => html.push(coverageRowHtml('missing', name, 'Add photos →')));
+      missing
+        .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+        .forEach(name => html.push(coverageRowHtml('missing', name, 'Add photos →')));
     } else {
       html.push(`<div class="empty-hint">None — every bike has at least one photo.</div>`);
     }
@@ -681,7 +672,7 @@ function runCoverageCheck() {
     html.push(`<div class="coverage-section"><h3>Already has photos</h3>`);
     if (covered.length) {
       covered
-        .sort((a, b) => a.count - b.count)
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
         .forEach(c => html.push(coverageRowHtml('covered', c.name, c.count + (c.count === 1 ? ' photo' : ' photos'))));
     } else {
       html.push(`<div class="empty-hint">None yet.</div>`);
@@ -703,14 +694,10 @@ function runCoverageCheck() {
     });
   }).catch(err => {
     setCoverageStatus('Could not check coverage: ' + err.message);
-  }).finally(() => {
-    coverageBtn.disabled = false;
   });
 }
 
-coverageBtn.addEventListener('click', runCoverageCheck);
-
-loadBikeNames();
+loadBikeNames().then(runCoverageCheck);
 </script>
 
 </body>

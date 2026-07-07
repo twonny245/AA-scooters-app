@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Accounts — AA Scooters</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --sand:#F5EFE6;
+    --ink:#1A2421;
+    --petrol:#0F3D3E;
+    --petrol-light:#175A5B;
+    --cone:#FF6B35;
+    --card:#FFFFFF;
+    --line:#DED4C2;
+    --muted:#5A6663;
+    --ok:#2F855A;
+    --bad:#C53030;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--sand); color:var(--ink);
+    font-family:'Inter',sans-serif; min-height:100vh;
+  }
+  .topbar{
+    background:var(--petrol); padding:14px 16px; display:flex;
+    align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;
+  }
+  .topbar .brand{ display:flex; align-items:center; gap:8px; text-decoration:none; }
+  .topbar .brand img{ width:28px; height:28px; object-fit:contain; }
+  .topbar .brand span{
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:15px;
+    color:#fff; letter-spacing:.02em;
+  }
+  .topbar nav{ display:flex; gap:16px; flex-wrap:wrap; }
+  .topbar nav a{
+    color:#CFE3E0; text-decoration:none; font-size:12.5px; font-weight:500;
+    padding:3px 0; border-bottom:2px solid transparent;
+  }
+  .topbar nav a:hover{ color:#fff; }
+  .topbar nav a.active{ color:#fff; border-bottom-color:var(--cone); }
+
+  .page-head{ max-width:960px; margin:0 auto; padding:22px 16px 4px; }
+  .page-head h1{
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:26px;
+    color:var(--petrol); margin:0;
+  }
+  .page-head .sub{ color:var(--muted); font-size:13px; margin-top:6px; line-height:1.5; }
+
+  main{ max-width:960px; margin:0 auto; padding:16px 16px 60px; }
+
+  .load-status{
+    font-size:12px; color:#B36A2E; background:#FFF3E6; border:1px solid #F3D9B8;
+    border-radius:7px; padding:7px 10px; margin-bottom:12px; display:none;
+  }
+  .load-status.show{ display:block; }
+
+  /* Month selector */
+  .month-bar{
+    display:flex; align-items:center; gap:10px; margin-bottom:20px;
+  }
+  .month-bar button{
+    flex-shrink:0; width:40px; height:40px; border-radius:9px;
+    border:1px solid var(--line); background:var(--card); color:var(--petrol);
+    font-size:18px; font-weight:700; cursor:pointer; display:flex;
+    align-items:center; justify-content:center; padding:0;
+  }
+  .month-bar button:active{ transform:scale(.95); }
+  .month-bar button:disabled{ opacity:.4; cursor:default; }
+  .month-bar select{
+    flex:1; padding:11px 12px; border:1px solid var(--line); border-radius:9px;
+    font-size:15px; font-family:'Barlow Condensed',sans-serif; font-weight:700;
+    letter-spacing:.03em; background:var(--card); color:var(--petrol);
+    text-align:center; text-transform:uppercase;
+  }
+
+  .columns{
+    display:grid; grid-template-columns:1fr 1fr; gap:20px;
+  }
+  @media (max-width:700px){
+    .columns{ grid-template-columns:1fr; }
+  }
+
+  .section h2{
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:18px;
+    color:var(--petrol); margin:0 0 4px;
+  }
+  .section .desc{ font-size:12.5px; color:var(--muted); margin-bottom:12px; line-height:1.5; }
+
+  .row{
+    background:var(--card); border:1px solid var(--line); border-radius:9px;
+    padding:10px 12px; margin-bottom:8px; font-size:13.5px;
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+  }
+  .row .left{ min-width:0; }
+  .row .title{ color:var(--ink); font-weight:500; }
+  .row .meta{ color:var(--muted); font-size:12px; margin-top:2px; }
+  .row .amt{ font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:15px; white-space:nowrap; }
+  .row .amt.expense{ color:var(--bad); }
+  .row .amt.income{ color:var(--ok); }
+  .row .chips{ display:flex; gap:6px; flex-wrap:wrap; margin-top:5px; }
+  .row .chip{
+    font-size:11px; font-weight:600; padding:2px 8px; border-radius:20px;
+    white-space:nowrap;
+  }
+  .row .chip.name{ background:#EAF1EE; color:var(--petrol); }
+  .row .chip.pay{ background:#FFF3E6; color:#B36A2E; }
+
+  .empty-hint{ font-size:13px; color:#8A948F; padding:8px 2px; }
+
+  .total-bar{
+    display:flex; align-items:center; justify-content:space-between;
+    background:var(--petrol); color:#fff; border-radius:10px;
+    padding:12px 14px; margin-top:4px;
+  }
+  .total-bar .l{
+    font-family:'Barlow Condensed',sans-serif; font-size:12.5px; font-weight:600;
+    letter-spacing:.08em; text-transform:uppercase; color:#CFE3E0;
+  }
+  .total-bar .n{ font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:20px; }
+
+  .btn-row{ display:flex; gap:10px; margin-top:12px; }
+  .btn-row button{
+    flex:1; padding:13px; border:none; border-radius:10px;
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:14px;
+    letter-spacing:.03em; text-transform:uppercase; cursor:pointer;
+  }
+  .btn-row button:active{ transform:scale(.98); }
+  .btn-add{ background:var(--cone); color:#fff; }
+
+  .row.clickable{ cursor:pointer; }
+  .row.clickable:active{ transform:scale(.99); }
+
+  /* Modal */
+  .modal-backdrop{
+    position:fixed; inset:0; background:rgba(15,36,33,.45);
+    display:none; align-items:flex-end; justify-content:center; z-index:1000;
+  }
+  .modal-backdrop.show{ display:flex; }
+  .modal-sheet{
+    background:var(--card); width:100%; max-width:480px;
+    border-radius:16px 16px 0 0; padding:20px 18px 24px;
+    max-height:90vh; overflow-y:auto;
+  }
+  @media (min-width:560px){
+    .modal-backdrop{ align-items:center; }
+    .modal-sheet{ border-radius:16px; }
+  }
+  .modal-sheet h3{
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:20px;
+    color:var(--petrol); margin:0 0 14px;
+  }
+  .field{ margin-bottom:12px; }
+  .field label{
+    display:block; font-size:12px; font-weight:600; color:var(--muted);
+    margin-bottom:5px; text-transform:uppercase; letter-spacing:.04em;
+  }
+  .field input, .field select{
+    width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:9px;
+    font-size:14.5px; font-family:'Inter',sans-serif; background:#FBFAF7; color:var(--ink);
+  }
+  .field input:focus, .field select:focus{ outline:none; border-color:var(--petrol-light); background:#fff; }
+  .modal-error{
+    font-size:12.5px; color:var(--bad); background:#FCEBEB; border:1px solid #F3C6C6;
+    border-radius:7px; padding:7px 10px; margin-bottom:12px; display:none;
+  }
+  .modal-error.show{ display:block; }
+  .modal-btn-row{ display:flex; gap:10px; margin-top:16px; }
+  .modal-btn-row button{
+    flex:1; padding:13px; border:none; border-radius:10px;
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:14px;
+    letter-spacing:.03em; text-transform:uppercase; cursor:pointer;
+  }
+  .modal-btn-row button:active{ transform:scale(.98); }
+  .btn-save{ background:var(--cone); color:#fff; }
+  .btn-cancel{ background:#EFEAE0; color:var(--petrol); }
+  .btn-save:disabled{ opacity:.6; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a class="brand" href="index.html">
+    <img src="https://scooterrentalchiangmai.com/wp-content/uploads/2025/02/cropped-logo-3333-101x105.png" alt="AA Scooters logo">
+    <span>AA Scooter Rental</span>
+  </a>
+  <nav>
+    <a href="index.html">Home</a>
+    <a href="customers.html">Customer Record</a>
+    <a href="pricing.html">Price Calculator</a>
+    <a href="parts.html">Parts &amp; Oil</a>
+    <a href="oilchange.html">Oil Change</a>
+    <a href="bikes.html">Bikes Status</a>
+    <a href="bikephotos.html">Bike Photos</a>
+    <a href="available-bikes.html">Available Bikes</a>
+    <a href="accounts.html" class="active">Accounts</a>
+  </nav>
+</div>
+
+<div class="page-head">
+  <h1>Accounts</h1>
+  <div class="sub">Expenses and income for the selected month.</div>
+</div>
+
+<main>
+  <div class="load-status" id="loadStatus"></div>
+
+  <div class="month-bar">
+    <button id="prevMonthBtn" type="button" aria-label="Previous month">‹</button>
+    <select id="monthSelect"></select>
+    <button id="nextMonthBtn" type="button" aria-label="Next month">›</button>
+  </div>
+
+  <div class="columns">
+    <div class="section" id="expensesSection">
+      <h2>Expenses</h2>
+      <div class="desc">Every expense row logged this month.</div>
+      <div id="expensesList"></div>
+      <div class="total-bar">
+        <div class="l">Total Expenses</div>
+        <div class="n" id="totalExpenses">—</div>
+      </div>
+      <div class="btn-row">
+        <button class="btn-add" id="addExpenseBtn">Add Expense</button>
+      </div>
+    </div>
+
+    <div class="section" id="incomeSection">
+      <h2>Income</h2>
+      <div class="desc">Every income row logged this month.</div>
+      <div id="incomeList"></div>
+      <div class="total-bar">
+        <div class="l">Total Income</div>
+        <div class="n" id="totalIncome">—</div>
+      </div>
+      <div class="btn-row">
+        <button class="btn-add" id="addIncomeBtn">Add Income</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal-sheet">
+    <h3 id="modalTitle">Add Expense</h3>
+    <div class="modal-error" id="modalError"></div>
+
+    <div class="field">
+      <label for="fDate">Date</label>
+      <input type="date" id="fDate">
+    </div>
+    <div class="field" id="fExpenseField">
+      <label for="fExpense">Expense</label>
+      <input type="text" id="fExpense" placeholder="e.g. Fuel, repairs, rent">
+    </div>
+    <div class="field" id="fIncomeField">
+      <label for="fIncome">Income</label>
+      <input type="text" id="fIncome" placeholder="e.g. Bike rental">
+    </div>
+    <div class="field" id="fNameField">
+      <label for="fName">Name</label>
+      <input type="text" id="fName" placeholder="Customer name">
+    </div>
+    <div class="field">
+      <label for="fAmount">Amount (฿)</label>
+      <input type="number" id="fAmount" step="0.01" placeholder="0.00">
+    </div>
+    <div class="field" id="fExpensePaymentField">
+      <label for="fExpensePayment">Payment method</label>
+      <select id="fExpensePayment">
+        <option value="">— Select —</option>
+        <option value="Bank">Bank</option>
+        <option value="Cash">Cash</option>
+      </select>
+    </div>
+    <div class="field" id="fPaidByField">
+      <label for="fPaidBy">Payment method</label>
+      <select id="fPaidBy">
+        <option value="">— Select —</option>
+        <option value="Cash">Cash</option>
+        <option value="Scan">Scan</option>
+        <option value="Wise">Wise</option>
+        <option value="Revolut">Revolut</option>
+      </select>
+    </div>
+
+    <div class="modal-btn-row">
+      <button class="btn-cancel" id="modalCancelBtn" type="button">Cancel</button>
+      <button class="btn-save" id="modalSaveBtn" type="button">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const scriptUrl = 'https://script.google.com/macros/s/AKfycbw8tbrYmwQE3gLlNrRIBoEFhCak08dzIqd8CN09IMixoY6hPu8QVCeMswzXwvbhrm8M/exec';
+
+const MONTH_NAMES = ['January','February','March','April','May','June',
+  'July','August','September','October','November','December'];
+
+// Populate the month dropdown once, up front.
+const monthSelect = document.getElementById('monthSelect');
+MONTH_NAMES.forEach((name, i) => {
+  const opt = document.createElement('option');
+  opt.value = i;
+  opt.textContent = name;
+  monthSelect.appendChild(opt);
+});
+
+function setLoadStatus(msg, isError) {
+  const el = document.getElementById('loadStatus');
+  if (!msg) { el.classList.remove('show'); el.textContent = ''; return; }
+  el.textContent = msg;
+  el.style.color = isError ? '#C53030' : '#B36A2E';
+  el.style.background = isError ? '#FCEBEB' : '#FFF3E6';
+  el.style.borderColor = isError ? '#F3C6C6' : '#F3D9B8';
+  el.classList.add('show');
+}
+
+// dd/MM/yyyy (how the sheet stores it) <-> yyyy-MM-dd (what <input type="date"> needs).
+function dmyToIso(s) {
+  const m = (s || '').toString().trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return '';
+  const d = m[1].padStart(2, '0'), mo = m[2].padStart(2, '0'), y = m[3];
+  return `${y}-${mo}-${d}`;
+}
+
+// Today's date as yyyy-MM-dd, in the browser's local timezone, for
+// defaulting the Add Expense/Income date field.
+function todayIso() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${mo}-${day}`;
+}
+
+function money(n) {
+  if (n === '' || n === null || n === undefined || isNaN(Number(n))) return '—';
+  const num = Number(n);
+  const sign = num < 0 ? '-' : '';
+  return sign + '฿' + Math.abs(num).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+let currentExpenses = [];
+let currentIncome = [];
+
+function renderExpenses(expenses) {
+  currentExpenses = expenses;
+  const list = document.getElementById('expensesList');
+  if (!expenses.length) {
+    list.innerHTML = '<div class="empty-hint">No expenses logged this month.</div>';
+  } else {
+    list.innerHTML = expenses.map((e, i) => `
+      <div class="row clickable" data-index="${i}">
+        <div class="left">
+          <div class="title">${e.expense || '—'}</div>
+          <div class="meta">${e.date || ''}</div>
+          <div class="chips">
+            ${e.payment ? `<span class="chip pay">Payment: ${e.payment}</span>` : ''}
+          </div>
+        </div>
+        <div class="amt expense">${money(e.amount)}</div>
+      </div>
+    `).join('');
+    list.querySelectorAll('.row').forEach(rowEl => {
+      rowEl.addEventListener('click', () => openExpenseModal(currentExpenses[Number(rowEl.dataset.index)]));
+    });
+  }
+  const total = expenses.reduce((sum, e) => sum + (typeof e.amount === 'number' ? e.amount : 0), 0);
+  document.getElementById('totalExpenses').textContent = money(total);
+}
+
+function renderIncome(income) {
+  currentIncome = income;
+  const list = document.getElementById('incomeList');
+  if (!income.length) {
+    list.innerHTML = '<div class="empty-hint">No income logged this month.</div>';
+  } else {
+    list.innerHTML = income.map((r, i) => `
+      <div class="row clickable" data-index="${i}">
+        <div class="left">
+          <div class="title">${r.income || '—'}</div>
+          <div class="meta">${r.date || ''}</div>
+          <div class="chips">
+            ${r.name ? `<span class="chip name">Name: ${r.name}</span>` : ''}
+            ${r.paidBy ? `<span class="chip pay">Payment: ${r.paidBy}</span>` : ''}
+          </div>
+        </div>
+        <div class="amt income">${money(r.amount)}</div>
+      </div>
+    `).join('');
+    list.querySelectorAll('.row').forEach(rowEl => {
+      rowEl.addEventListener('click', () => openIncomeModal(currentIncome[Number(rowEl.dataset.index)]));
+    });
+  }
+  const total = income.reduce((sum, r) => sum + (typeof r.amount === 'number' ? r.amount : 0), 0);
+  document.getElementById('totalIncome').textContent = money(total);
+}
+
+let loadToken = 0;
+
+async function loadMonth(monthIndex) {
+  const myToken = ++loadToken;
+  monthSelect.value = monthIndex;
+  document.getElementById('prevMonthBtn').disabled = monthIndex <= 0;
+  document.getElementById('nextMonthBtn').disabled = monthIndex >= 11;
+
+  setLoadStatus('Loading ' + MONTH_NAMES[monthIndex] + '…');
+  document.getElementById('expensesList').innerHTML = '';
+  document.getElementById('incomeList').innerHTML = '';
+  document.getElementById('totalExpenses').textContent = '—';
+  document.getElementById('totalIncome').textContent = '—';
+
+  try {
+    const res = await fetch(scriptUrl + '?action=accounts&month=' + monthIndex).then(r => r.json());
+    if (myToken !== loadToken) return; // A newer month was selected while this was in flight.
+
+    if (!res.success) {
+      setLoadStatus(res.error || ('No sheet found for ' + MONTH_NAMES[monthIndex] + '.'), true);
+      return;
+    }
+    setLoadStatus(null);
+    renderExpenses(res.expenses || []);
+    renderIncome(res.income || []);
+  } catch (err) {
+    if (myToken !== loadToken) return;
+    setLoadStatus('Failed to load: ' + err.message, true);
+  }
+}
+
+document.getElementById('prevMonthBtn').addEventListener('click', () => {
+  const i = Number(monthSelect.value);
+  if (i > 0) loadMonth(i - 1);
+});
+document.getElementById('nextMonthBtn').addEventListener('click', () => {
+  const i = Number(monthSelect.value);
+  if (i < 11) loadMonth(i + 1);
+});
+monthSelect.addEventListener('change', () => loadMonth(Number(monthSelect.value)));
+
+// ---------------- Add/Edit modal ----------------
+
+const modalBackdrop = document.getElementById('modalBackdrop');
+const modalTitle = document.getElementById('modalTitle');
+const modalError = document.getElementById('modalError');
+const fDate = document.getElementById('fDate');
+const fExpense = document.getElementById('fExpense');
+const fIncome = document.getElementById('fIncome');
+const fName = document.getElementById('fName');
+const fAmount = document.getElementById('fAmount');
+const fPaidBy = document.getElementById('fPaidBy');
+const fExpensePayment = document.getElementById('fExpensePayment');
+const fExpenseField = document.getElementById('fExpenseField');
+const fIncomeField = document.getElementById('fIncomeField');
+const fNameField = document.getElementById('fNameField');
+const fPaidByField = document.getElementById('fPaidByField');
+const fExpensePaymentField = document.getElementById('fExpensePaymentField');
+const modalSaveBtn = document.getElementById('modalSaveBtn');
+
+// modalMode is one of: 'addExpense', 'editExpense', 'addIncome', 'editIncome'
+let modalMode = null;
+let modalEditRow = null; // sheet row number, only set when editing
+
+function setModalError(msg) {
+  if (!msg) { modalError.classList.remove('show'); modalError.textContent = ''; return; }
+  modalError.textContent = msg;
+  modalError.classList.add('show');
+}
+
+function openModal(mode, isIncome, entry) {
+  modalMode = mode;
+  modalEditRow = entry ? entry.row : null;
+  setModalError(null);
+
+  fExpenseField.style.display = isIncome ? 'none' : 'block';
+  fIncomeField.style.display = isIncome ? 'block' : 'none';
+  fNameField.style.display = isIncome ? 'block' : 'none';
+  fPaidByField.style.display = isIncome ? 'block' : 'none';
+  fExpensePaymentField.style.display = isIncome ? 'none' : 'block';
+
+  if (isIncome) {
+    modalTitle.textContent = entry ? 'Edit Income' : 'Add Income';
+    fIncome.value = entry ? (entry.income || '') : '';
+    fName.value = entry ? (entry.name || '') : '';
+    fPaidBy.value = entry ? (entry.paidBy || '') : '';
+  } else {
+    modalTitle.textContent = entry ? 'Edit Expense' : 'Add Expense';
+    fExpense.value = entry ? (entry.expense || '') : '';
+    fExpensePayment.value = entry ? (entry.payment || '') : '';
+  }
+  fDate.value = entry ? dmyToIso(entry.date) : todayIso();
+  fAmount.value = (entry && typeof entry.amount === 'number') ? entry.amount : '';
+
+  modalBackdrop.classList.add('show');
+}
+
+function openExpenseModal(entry) { openModal(entry ? 'editExpense' : 'addExpense', false, entry); }
+function openIncomeModal(entry) { openModal(entry ? 'editIncome' : 'addIncome', true, entry); }
+
+function closeModal() {
+  modalBackdrop.classList.remove('show');
+}
+
+document.getElementById('addExpenseBtn').addEventListener('click', () => openExpenseModal(null));
+document.getElementById('addIncomeBtn').addEventListener('click', () => openIncomeModal(null));
+document.getElementById('modalCancelBtn').addEventListener('click', closeModal);
+modalBackdrop.addEventListener('click', (e) => { if (e.target === modalBackdrop) closeModal(); });
+
+modalSaveBtn.addEventListener('click', async () => {
+  const isIncome = modalMode === 'addIncome' || modalMode === 'editIncome';
+  const isEdit = modalMode === 'editExpense' || modalMode === 'editIncome';
+
+  const payload = {
+    action: modalMode,
+    monthIndex: Number(monthSelect.value),
+    date: fDate.value || ''
+  };
+  if (isEdit) payload.row = modalEditRow;
+
+  if (isIncome) {
+    payload.income = fIncome.value.trim();
+    payload.name = fName.value.trim();
+    payload.paidBy = fPaidBy.value.trim();
+    if (!payload.income) { setModalError('Please enter an income description.'); return; }
+  } else {
+    payload.expense = fExpense.value.trim();
+    payload.payment = fExpensePayment.value;
+    if (!payload.expense) { setModalError('Please enter an expense description.'); return; }
+  }
+  payload.amount = fAmount.value === '' ? '' : Number(fAmount.value);
+  if (fAmount.value !== '' && isNaN(payload.amount)) { setModalError('Amount must be a number.'); return; }
+
+  modalSaveBtn.disabled = true;
+  setModalError(null);
+  try {
+    const res = await fetch(scriptUrl, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }).then(r => r.json());
+
+    if (!res.success) {
+      setModalError(res.error || 'Save failed — please try again.');
+      return;
+    }
+    closeModal();
+    loadMonth(Number(monthSelect.value));
+  } catch (err) {
+    setModalError('Save failed: ' + err.message);
+  } finally {
+    modalSaveBtn.disabled = false;
+  }
+});
+
+// Default to the current month.
+loadMonth(new Date().getMonth());
+</script>
+
+</body>
+</html>

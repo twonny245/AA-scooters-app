@@ -39,6 +39,18 @@ function doPost(e) {
     if (data.action === 'closeBikeForExtend') {
       return closeBikeForExtend(data);
     }
+    if (data.action === 'addExpense') {
+      return addExpenseRow(data);
+    }
+    if (data.action === 'editExpense') {
+      return editExpenseRow(data);
+    }
+    if (data.action === 'addIncome') {
+      return addIncomeRow(data);
+    }
+    if (data.action === 'editIncome') {
+      return editIncomeRow(data);
+    }
 
     // ---- Customer-intake behavior ----
     var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -999,6 +1011,9 @@ function doGet(e) {
     if (e.parameter.action === 'photoFolders') {
       return getPhotoFolders();
     }
+    if (e.parameter.action === 'accounts') {
+      return getAccountsData(e.parameter.month);
+    }
 
     // ---- Customer-search behavior ----
     var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -1138,6 +1153,383 @@ function getOperationStatusRows() {
 
   } catch (err) {
     return [];
+  }
+}
+
+var ACCOUNTS_MONTH_NAMES = ['January','February','March','April','May','June',
+  'July','August','September','October','November','December'];
+
+// ---- Plain Levenshtein edit distance, used only to tolerate typos in a
+// month tab's name (e.g. "Feburary" should still resolve to February). ----
+function levenshteinDistance(a, b) {
+  a = a || ''; b = b || '';
+  var m = a.length, n = b.length;
+  var dp = [];
+  for (var i = 0; i <= m; i++) { dp.push([i]); }
+  for (var j = 0; j <= n; j++) { dp[0][j] = j; }
+  for (i = 1; i <= m; i++) {
+    for (j = 1; j <= n; j++) {
+      if (a.charAt(i - 1) === b.charAt(j - 1)) {
+        dp[i][j] = dp[i - 1][j - 1];
+      } else {
+        dp[i][j] = 1 + Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+  return dp[m][n];
+}
+
+// ---- Scores how well a (normalized, lowercase) sheet name matches a given
+// full month name. 0 = confident match: exact, or the sheet name is just an
+// abbreviation/prefix of the month ("jan", "sept", "June" all score 0
+// against their month). Otherwise falls back to edit distance against the
+// full name, to tolerate spelling mistakes ("Feburary"). ----
+function monthMatchScore(sheetNameNorm, fullMonthNameLower) {
+  if (!sheetNameNorm) return 99;
+  if (sheetNameNorm === fullMonthNameLower) return 0;
+  if (fullMonthNameLower.indexOf(sheetNameNorm) === 0 && sheetNameNorm.length >= 3) return 0;
+  return levenshteinDistance(sheetNameNorm, fullMonthNameLower);
+}
+
+// ---- Finds the sheet (visible or hidden) whose name best matches the given
+// full month name ("July"), tolerating abbreviations ("Jul") and minor
+// spelling mistakes. Returns null if nothing is a close enough match. ----
+function findMonthSheetFuzzy(ss, fullMonthName) {
+  var target = fullMonthName.toLowerCase();
+  var sheets = ss.getSheets();
+  var best = null;
+  var bestScore = 99;
+  for (var i = 0; i < sheets.length; i++) {
+    var name = sheets[i].getName();
+    var norm = name.toString().trim().toLowerCase();
+    var score = monthMatchScore(norm, target);
+    if (score < bestScore) {
+      bestScore = score;
+      best = sheets[i];
+    }
+  }
+  // Allow up to a 2-character edit distance so small typos still resolve,
+  // but not so loose that an unrelated sheet ("cash", "bikes") gets matched.
+  if (best && bestScore <= 2) return best;
+  return null;
+}
+
+// ---- Shared with getAccountsData, getAccountsFreeRow, and the
+// add/edit-expense/income functions below, so the "where does the real
+// data end and the totals block begin" rule stays identical everywhere
+// it's used. Flags a label as a summary/totals line -- "total expenses",
+// "income for month", "net profit", "% of ...", etc. ----
+function looksLikeSummaryLabel(raw) {
+  var t = (raw || '').toString().trim().toLowerCase();
+  if (!t) return false;
+  if (t.indexOf('total') === 0) return true; // "total expenses", "total income", ...
+  var phrases = [
+    'income for month', 'income for the month', 'income less',
+    'bussiness expense', 'business expense', 'personal expense',
+    'wages and bike', 'net profit', 'actual profit', '% of'
+  ];
+  for (var p = 0; p < phrases.length; p++) {
+    if (t.indexOf(phrases[p]) !== -1) return true;
+  }
+  return false;
+}
+
+// ---- Serve one month's sheet for the Accounts page: the expense list
+// (A Date, B expense, C amount) and the income list (E Date, F Income,
+// G name, H Amount, I paid). monthIndexRaw is 0 (January) - 11 (December);
+// defaults to the current month if missing/invalid. The sheet itself is
+// located by fuzzy-matching its name against the month, so abbreviated or
+// slightly misspelled tab names ("Jan", "Feburary") still resolve, and
+// hidden tabs are included since Apps Script can read them regardless.
+// Each returned row includes its real sheet row number so the Accounts
+// page can send it back on addExpense/editExpense/addIncome/editIncome. ----
+function getAccountsData(monthIndexRaw) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var tz = ss.getSpreadsheetTimeZone();
+
+    var currentIndex = Number(Utilities.formatDate(new Date(), tz, 'M')) - 1;
+    var monthIndex = currentIndex;
+    if (monthIndexRaw !== undefined && monthIndexRaw !== null && monthIndexRaw !== '' && !isNaN(Number(monthIndexRaw))) {
+      monthIndex = Math.max(0, Math.min(11, Math.round(Number(monthIndexRaw))));
+    }
+    var targetMonthName = ACCOUNTS_MONTH_NAMES[monthIndex];
+
+    var sheet = findMonthSheetFuzzy(ss, targetMonthName);
+    if (!sheet) {
+      return ContentService
+        .createTextOutput(JSON.stringify({
+          success: false,
+          monthIndex: monthIndex,
+          month: targetMonthName,
+          error: 'No sheet found matching "' + targetMonthName + '".'
+        }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    function cellToString(val) {
+      if (val instanceof Date) {
+        return Utilities.formatDate(val, tz, 'dd/MM/yyyy');
+      }
+      return val !== undefined && val !== null ? val : '';
+    }
+
+    var lastRow = sheet.getLastRow();
+
+    // Reads columns A-J together, row by row, and stops for good the moment
+    // either side's label looks like a summary/totals line (see
+    // looksLikeSummaryLabel above). That's the real boundary between the
+    // actual expense/income rows and the personal totals block further
+    // down the sheet, so once it's hit, nothing after it (on EITHER side)
+    // is included, even if that side's own column still has data lower
+    // down. Two consecutive fully-blank rows are also treated as the end,
+    // as a fallback for months whose totals block doesn't use recognizable
+    // label text.
+    //
+    // Column layout: A date, B expense, C amount, D payment (expense side),
+    // E is a blank "CHK" spacer column (ignored), F date, G income,
+    // H name, I amount, J paid (income side).
+    var expenses = [];
+    var income = [];
+    if (lastRow >= 2) {
+      var combined = sheet.getRange(2, 1, lastRow - 1, 10).getValues();
+      var prevBlank = false;
+      for (var idx = 0; idx < combined.length; idx++) {
+        var r = combined[idx];
+        var eDate = r[0], expenseLabel = (r[1] || '').toString().trim(), eAmount = r[2];
+        var ePayment = (r[3] || '').toString().trim();
+        var iDate = r[5], incomeLabel = (r[6] || '').toString().trim(), iAmount = r[8];
+
+        if (looksLikeSummaryLabel(expenseLabel) || looksLikeSummaryLabel(incomeLabel)) break;
+
+        var eDateEmpty = (eDate === '' || eDate === null);
+        var eAmountEmpty = (eAmount === '' || eAmount === null);
+        var iDateEmpty = (iDate === '' || iDate === null);
+        var iAmountEmpty = (iAmount === '' || iAmount === null);
+
+        var rowFullyBlank = eDateEmpty && !expenseLabel && eAmountEmpty &&
+          iDateEmpty && !incomeLabel && iAmountEmpty;
+        if (rowFullyBlank) {
+          if (prevBlank) break; // two in a row -- treat as the end
+          prevBlank = true;
+          continue;
+        }
+        prevBlank = false;
+
+        var sheetRow = idx + 2; // combined[] is 0-based starting at sheet row 2
+
+        if (expenseLabel || !eAmountEmpty) {
+          expenses.push({
+            row: sheetRow,
+            date: cellToString(eDate),
+            expense: expenseLabel,
+            amount: (eAmountEmpty || isNaN(Number(eAmount))) ? '' : Number(eAmount),
+            payment: ePayment
+          });
+        }
+        if (incomeLabel || !iAmountEmpty) {
+          income.push({
+            row: sheetRow,
+            date: cellToString(iDate),
+            income: incomeLabel,
+            name: (r[7] || '').toString().trim(),
+            amount: (iAmountEmpty || isNaN(Number(iAmount))) ? '' : Number(iAmount),
+            paidBy: (r[9] || '').toString().trim()
+          });
+        }
+      }
+    }
+
+    return ContentService
+      .createTextOutput(JSON.stringify({
+        success: true,
+        monthIndex: monthIndex,
+        month: targetMonthName,
+        sheetName: sheet.getName(),
+        expenses: expenses,
+        income: income
+      }))
+      .setMimeType(ContentService.MimeType.JSON);
+
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: false, error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+// ---- Shared month-sheet lookup for the four accounts write functions
+// below. Accepts either a monthIndex (0-11) or falls back to the current
+// month, same rule as getAccountsData. ----
+function locateAccountsSheet(monthIndexRaw) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var tz = ss.getSpreadsheetTimeZone();
+  var currentIndex = Number(Utilities.formatDate(new Date(), tz, 'M')) - 1;
+  var monthIndex = currentIndex;
+  if (monthIndexRaw !== undefined && monthIndexRaw !== null && monthIndexRaw !== '' && !isNaN(Number(monthIndexRaw))) {
+    monthIndex = Math.max(0, Math.min(11, Math.round(Number(monthIndexRaw))));
+  }
+  var targetMonthName = ACCOUNTS_MONTH_NAMES[monthIndex];
+  var sheet = findMonthSheetFuzzy(ss, targetMonthName);
+  if (!sheet) throw new Error('No sheet found matching "' + targetMonthName + '".');
+  return sheet;
+}
+
+// ---- Checks whether one side (expense or income) of a given combined
+// row (as returned by the getRange(...,10) reads above) is completely
+// empty -- i.e. safe to write a new entry into without erasing anything
+// already there on that row. ----
+function isAccountsSideEmpty(r, side) {
+  if (side === 'expense') {
+    var eDateEmpty = (r[0] === '' || r[0] === null);
+    var expenseLabel = (r[1] || '').toString().trim();
+    var eAmountEmpty = (r[2] === '' || r[2] === null);
+    var paymentEmpty = !(r[3] || '').toString().trim();
+    return eDateEmpty && !expenseLabel && eAmountEmpty && paymentEmpty;
+  }
+  var iDateEmpty = (r[5] === '' || r[5] === null);
+  var incomeLabel = (r[6] || '').toString().trim();
+  var nameEmpty = !(r[7] || '').toString().trim();
+  var iAmountEmpty = (r[8] === '' || r[8] === null);
+  var paidByEmpty = !(r[9] || '').toString().trim();
+  return iDateEmpty && !incomeLabel && nameEmpty && iAmountEmpty && paidByEmpty;
+}
+
+// ---- Finds a row that's safe to write a brand-new expense OR income
+// entry into (side is 'expense' or 'income'), packing new entries in
+// right alongside the other side rather than always adding a whole new
+// row. Since expense and income rows don't need to line up 1-for-1, a row
+// that already has an income entry but no expense (or vice versa) is
+// reused for the new entry on the empty side -- this is what keeps
+// entries "one after another" with no gaps on either side.
+//
+// If every row up to the totals block already has this side filled, and
+// the data runs straight into a "total ..." style summary row with no
+// gap, a fresh row is inserted directly above that summary row -- since
+// it lands inside the range most SUM()-style total formulas already
+// cover, existing formulas simply expand to include it. If no summary row
+// is found either, the row right after the sheet's last used row is
+// used. ----
+function getAccountsFreeRow(sheet, side) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return 2;
+
+  var combined = sheet.getRange(2, 1, lastRow - 1, 10).getValues();
+  for (var idx = 0; idx < combined.length; idx++) {
+    var r = combined[idx];
+    var expenseLabel = (r[1] || '').toString().trim();
+    var incomeLabel = (r[6] || '').toString().trim();
+
+    if (looksLikeSummaryLabel(expenseLabel) || looksLikeSummaryLabel(incomeLabel)) {
+      var summaryRow = idx + 2;
+      sheet.insertRowBefore(summaryRow);
+      return summaryRow;
+    }
+
+    if (isAccountsSideEmpty(r, side)) {
+      return idx + 2;
+    }
+  }
+  return lastRow + 1;
+}
+
+// ---- action:'addExpense' -- data: { monthIndex, date (yyyy-MM-dd),
+// expense, amount, payment }. Writes into a fresh row's A/B/C/D columns
+// only, leaving whatever is in that row's income columns (F-J) untouched. ----
+function addExpenseRow(data) {
+  try {
+    var sheet = locateAccountsSheet(data.monthIndex);
+    var row = getAccountsFreeRow(sheet, 'expense');
+    sheet.getRange(row, 1).setValue(formatIsoDateToDMY(data.date) || '');
+    sheet.getRange(row, 2).setValue(data.expense || '');
+    sheet.getRange(row, 3).setValue(
+      (data.amount === '' || data.amount === undefined || data.amount === null || isNaN(Number(data.amount)))
+        ? '' : Number(data.amount)
+    );
+    sheet.getRange(row, 4).setValue(data.payment || '');
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: true, row: row }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: false, error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+// ---- action:'editExpense' -- data: { monthIndex, row, date, expense,
+// amount, payment }. Overwrites A/B/C/D on the given (already-existing)
+// row only. ----
+function editExpenseRow(data) {
+  try {
+    if (!data.row || isNaN(Number(data.row))) throw new Error('Missing row number to edit.');
+    var sheet = locateAccountsSheet(data.monthIndex);
+    var row = Math.round(Number(data.row));
+    sheet.getRange(row, 1).setValue(formatIsoDateToDMY(data.date) || '');
+    sheet.getRange(row, 2).setValue(data.expense || '');
+    sheet.getRange(row, 3).setValue(
+      (data.amount === '' || data.amount === undefined || data.amount === null || isNaN(Number(data.amount)))
+        ? '' : Number(data.amount)
+    );
+    sheet.getRange(row, 4).setValue(data.payment || '');
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: true, row: row }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: false, error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+// ---- action:'addIncome' -- data: { monthIndex, date, income, name,
+// amount, paidBy }. Writes into a fresh row's F/G/H/I/J columns only,
+// leaving whatever is in that row's expense columns (A-D) untouched. ----
+function addIncomeRow(data) {
+  try {
+    var sheet = locateAccountsSheet(data.monthIndex);
+    var row = getAccountsFreeRow(sheet, 'income');
+    sheet.getRange(row, 6).setValue(formatIsoDateToDMY(data.date) || '');
+    sheet.getRange(row, 7).setValue(data.income || '');
+    sheet.getRange(row, 8).setValue(data.name || '');
+    sheet.getRange(row, 9).setValue(
+      (data.amount === '' || data.amount === undefined || data.amount === null || isNaN(Number(data.amount)))
+        ? '' : Number(data.amount)
+    );
+    sheet.getRange(row, 10).setValue(data.paidBy || '');
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: true, row: row }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: false, error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+// ---- action:'editIncome' -- data: { monthIndex, row, date, income, name,
+// amount, paidBy }. Overwrites F/G/H/I/J on the given (already-existing)
+// row only. ----
+function editIncomeRow(data) {
+  try {
+    if (!data.row || isNaN(Number(data.row))) throw new Error('Missing row number to edit.');
+    var sheet = locateAccountsSheet(data.monthIndex);
+    var row = Math.round(Number(data.row));
+    sheet.getRange(row, 6).setValue(formatIsoDateToDMY(data.date) || '');
+    sheet.getRange(row, 7).setValue(data.income || '');
+    sheet.getRange(row, 8).setValue(data.name || '');
+    sheet.getRange(row, 9).setValue(
+      (data.amount === '' || data.amount === undefined || data.amount === null || isNaN(Number(data.amount)))
+        ? '' : Number(data.amount)
+    );
+    sheet.getRange(row, 10).setValue(data.paidBy || '');
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: true, row: row }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: false, error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON);
   }
 }
 
