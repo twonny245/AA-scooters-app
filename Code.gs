@@ -251,32 +251,59 @@ function getCurrentMonthSheet(ss) {
   return ss.getSheetByName(monthName);
 }
 
+// ---- Finds the first row (starting at startRow) where EVERY column
+// listed in cols is blank -- not just one column checked as a stand-in
+// for "the whole row is free". Every "append a new entry" writer below
+// uses this before writing, so a stray value sitting in just one of the
+// columns it's about to write into (left over from a manual edit, or an
+// old version of this code writing to the wrong column -- exactly what
+// happened with appendMonthlyIncomeRow before its column numbers were
+// corrected) can never be silently overwritten.
+//
+// If every row up to the sheet's current used range already has
+// something in at least one of `cols`, this returns the row right after
+// the last used row -- i.e. a brand-new blank row, never a guess. ----
+function findFullyEmptyRow(sheet, startRow, cols) {
+  var minCol = cols[0], maxCol = cols[0];
+  for (var c = 1; c < cols.length; c++) {
+    if (cols[c] < minCol) minCol = cols[c];
+    if (cols[c] > maxCol) maxCol = cols[c];
+  }
+  var width = maxCol - minCol + 1;
+  var lastRow = sheet.getLastRow();
+  var scanRows = Math.max(lastRow - startRow + 2, 1); // +1 so at least one always-blank row past the used range is included
+
+  var values = sheet.getRange(startRow, minCol, scanRows, width).getValues();
+  for (var i = 0; i < values.length; i++) {
+    var rowAllBlank = true;
+    for (var j = 0; j < cols.length; j++) {
+      var v = values[i][cols[j] - minCol];
+      if (v !== '' && v !== null && v !== undefined) { rowAllBlank = false; break; }
+    }
+    if (rowAllBlank) return startRow + i;
+  }
+  return startRow + values.length;
+}
+
 // ---- Log a new rental as a row on the current month's income sheet (e.g.
-// "July"). Columns: E Date, F Income, G PAX name, H Amount, I paid. Finds
-// the next empty row by looking only at column E (the Date column), since
-// unrelated columns further left/right (e.g. the "expense" block, or notes
-// off to the side) can have data further down and shouldn't shift where a
-// new income row lands. If no sheet matches the current month name, this
+// "July"). Columns: F Date, G Income, H PAX name, I Amount, J paid. Finds
+// the next row where ALL FIVE of those columns are blank via
+// findFullyEmptyRow -- not just one column checked as a stand-in for "the
+// whole row is free" -- so a stray value in any one of them never gets
+// silently overwritten. If no sheet matches the current month name, this
 // silently does nothing -- it's not created automatically, since it should
 // already exist as a normal monthly tab. ----
 function appendMonthlyIncomeRow(ss, data, dayCount) {
-  var DATE_COL = 5;   // E
-  var INCOME_COL = 6; // F
-  var NAME_COL = 7;   // G
-  var AMOUNT_COL = 8; // H
-  var PAID_COL = 9;   // I
+  var DATE_COL = 6;   // F
+  var INCOME_COL = 7; // G
+  var NAME_COL = 8;   // H
+  var AMOUNT_COL = 9; // I
+  var PAID_COL = 10;  // J
 
   var sheet = getCurrentMonthSheet(ss);
   if (!sheet) return; // No tab for the current month -- nothing to log against.
 
-  var maxRow = sheet.getMaxRows();
-  var dateColValues = sheet.getRange(1, DATE_COL, maxRow, 1).getValues();
-  var lastFilledRow = 1; // Assume row 1 is the header row.
-  for (var i = 0; i < dateColValues.length; i++) {
-    var v = dateColValues[i][0];
-    if (v !== '' && v !== null) lastFilledRow = i + 1;
-  }
-  var targetRow = lastFilledRow + 1;
+  var targetRow = findFullyEmptyRow(sheet, 2, [DATE_COL, INCOME_COL, NAME_COL, AMOUNT_COL, PAID_COL]);
 
   var incomeText = buildRentalIncomeText(data, dayCount);
 
@@ -293,8 +320,8 @@ function appendMonthlyIncomeRow(ss, data, dayCount) {
 
   // Match the formatting (currency style, borders, banding) of the row
   // directly above, so the new row looks consistent with the rest.
-  if (lastFilledRow >= 2) {
-    sheet.getRange(lastFilledRow, DATE_COL, 1, 5)
+  if (targetRow - 1 >= 2) {
+    sheet.getRange(targetRow - 1, DATE_COL, 1, 5)
       .copyFormatToRange(sheet, DATE_COL, PAID_COL, targetRow, targetRow);
   }
 }
@@ -324,14 +351,7 @@ function appendCashSheetRowText(ss, incomeText, rawAmount) {
   var sheet = ss.getSheetByName('cash');
   if (!sheet) return; // No "cash" tab -- nothing to log against.
 
-  var maxRow = sheet.getMaxRows();
-  var dateColValues = sheet.getRange(1, DATE_COL, maxRow, 1).getValues();
-  var lastFilledRow = 1; // Assume row 1 is the header row.
-  for (var i = 0; i < dateColValues.length; i++) {
-    var v = dateColValues[i][0];
-    if (v !== '' && v !== null) lastFilledRow = i + 1;
-  }
-  var targetRow = lastFilledRow + 1;
+  var targetRow = findFullyEmptyRow(sheet, 2, [DATE_COL, INCOME_COL, AMOUNT_COL]);
 
   var amountValue = rawAmount !== '' && rawAmount !== undefined && rawAmount !== null && !isNaN(Number(rawAmount))
     ? Number(rawAmount)
@@ -343,8 +363,8 @@ function appendCashSheetRowText(ss, incomeText, rawAmount) {
 
   // Match the formatting (currency style, borders) of the row directly
   // above, so the new row looks consistent with the rest.
-  if (lastFilledRow >= 2) {
-    sheet.getRange(lastFilledRow, DATE_COL, 1, 3)
+  if (targetRow - 1 >= 2) {
+    sheet.getRange(targetRow - 1, DATE_COL, 1, 3)
       .copyFormatToRange(sheet, DATE_COL, AMOUNT_COL, targetRow, targetRow);
   }
   return targetRow;
@@ -364,14 +384,7 @@ function appendCashExpenseRowText(ss, expenseText, rawAmount) {
   var sheet = ss.getSheetByName('cash');
   if (!sheet) return; // No "cash" tab -- nothing to log against.
 
-  var maxRow = sheet.getMaxRows();
-  var dateColValues = sheet.getRange(1, DATE_COL, maxRow, 1).getValues();
-  var lastFilledRow = 1; // Assume row 1 is the header row.
-  for (var i = 0; i < dateColValues.length; i++) {
-    var v = dateColValues[i][0];
-    if (v !== '' && v !== null) lastFilledRow = i + 1;
-  }
-  var targetRow = lastFilledRow + 1;
+  var targetRow = findFullyEmptyRow(sheet, 2, [DATE_COL, LABEL_COL, AMOUNT_COL]);
 
   var amountValue = rawAmount !== '' && rawAmount !== undefined && rawAmount !== null && !isNaN(Number(rawAmount))
     ? Number(rawAmount)
@@ -383,8 +396,8 @@ function appendCashExpenseRowText(ss, expenseText, rawAmount) {
 
   // Match the formatting (currency style, borders) of the row directly
   // above, so the new row looks consistent with the rest.
-  if (lastFilledRow >= 2) {
-    sheet.getRange(lastFilledRow, DATE_COL, 1, 3)
+  if (targetRow - 1 >= 2) {
+    sheet.getRange(targetRow - 1, DATE_COL, 1, 3)
       .copyFormatToRange(sheet, DATE_COL, AMOUNT_COL, targetRow, targetRow);
   }
   return targetRow;
@@ -744,9 +757,13 @@ function logSecurityDeposit(ss, methodLower, rawAmount, customerName) {
     var dateLabel = (dateColValues[i][0] || '').toString().trim().toLowerCase();
     if (dateLabel === 'total') break; // Don't write into or past the totals row.
 
+    // All three cells this writes into (date, amount, name) have to be
+    // blank -- not just amount+name -- so a row with a stray leftover
+    // date but nothing else never gets silently overwritten.
+    var dateEmpty = dateColValues[i][0] === '' || dateColValues[i][0] === null;
     var amtEmpty = amountColValues[i][0] === '' || amountColValues[i][0] === null;
     var nameEmpty = nameColValues[i][0] === '' || nameColValues[i][0] === null;
-    if (amtEmpty && nameEmpty) {
+    if (dateEmpty && amtEmpty && nameEmpty) {
       targetRow = i + 2;
       break;
     }
