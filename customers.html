@@ -1263,5 +1263,83 @@ document.getElementById('clearSearch').addEventListener('click', () => {
 });
 </script>
 
+
+<script>
+/* ---- Date-in-words labels (shared across all pages) ----
+   Every <input type="date"> gets a small red label right after it that
+   writes the selected date out in words -- e.g. "8 July 2026" -- so a
+   date like 08/07 can never be misread as August 7 (American style).
+   You still pick the date in the box exactly as before; this only
+   changes what's DISPLAYED, never what's saved to the sheet.
+   Handles date boxes created later (e.g. the Return picker on Bikes
+   Status) via a DOM observer, and values set by code (prefills,
+   defaults) via a light polling loop. */
+(function () {
+  var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'];
+
+  function dateWords(iso) {
+    var m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(iso || '');
+    if (!m) return '';
+    var monthIdx = parseInt(m[2], 10) - 1;
+    if (monthIdx < 0 || monthIdx > 11) return '';
+    return parseInt(m[3], 10) + ' ' + MONTHS[monthIdx] + ' ' + parseInt(m[1], 10);
+  }
+
+  function ensureLabel(inp) {
+    var el = inp.__dateWordsEl;
+    if (el && el.parentNode) return el;
+    el = document.createElement('span');
+    el.className = 'date-words-label';
+    el.style.cssText = 'display:inline-block;font-size:12.5px;font-weight:700;' +
+      'color:#C62828;margin-top:3px;margin-left:2px;line-height:1.25;white-space:nowrap;';
+    if (inp.nextSibling) {
+      inp.parentNode.insertBefore(el, inp.nextSibling);
+    } else {
+      inp.parentNode.appendChild(el);
+    }
+    inp.__dateWordsEl = el;
+    return el;
+  }
+
+  function refreshDateWordLabels() {
+    var inputs = document.querySelectorAll('input[type="date"]');
+    for (var i = 0; i < inputs.length; i++) {
+      var inp = inputs[i];
+      if (!inp.parentNode) continue;
+      var el = ensureLabel(inp);
+      var text = dateWords(inp.value);
+      if (el.textContent !== text) el.textContent = text;
+    }
+  }
+
+  // React immediately when the user picks/types a date.
+  document.addEventListener('change', function (e) {
+    if (e.target && e.target.type === 'date') refreshDateWordLabels();
+  }, true);
+  document.addEventListener('input', function (e) {
+    if (e.target && e.target.type === 'date') refreshDateWordLabels();
+  }, true);
+
+  // Catch date boxes that get created after page load (re-rendered lists,
+  // pop-up pickers). refreshDateWordLabels is idempotent, so the observer
+  // re-firing on its own label insertions settles immediately.
+  if (window.MutationObserver) {
+    new MutationObserver(refreshDateWordLabels)
+      .observe(document.documentElement, { childList: true, subtree: true });
+  }
+
+  // Catch values set by code (defaults, prefills from other pages), which
+  // fire no events. A few date boxes at 2 checks/second costs nothing.
+  setInterval(refreshDateWordLabels, 500);
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', refreshDateWordLabels);
+  } else {
+    refreshDateWordLabels();
+  }
+})();
+</script>
+
 </body>
 </html>
