@@ -830,6 +830,10 @@ function confirmReturn(rowNumber, isoDate) {
     .then(res => res.json())
     .then(result => {
       if (!result.success) throw new Error(result.error || 'Could not save.');
+      // Post-write verification problems (the server re-reads what it
+      // wrote and compares) come back as a warning -- the save DID go
+      // through, but something should be checked by hand.
+      if (result.warning) alert('Saved, but: ' + result.warning);
       openReturnRowNumber = null;
       savingReturnRowNumber = null;
 
@@ -924,6 +928,9 @@ function confirmExtend(rowNumber, daysToExtend, amountPaid, extendMonth, paidBy)
       .then(res => res.json())
       .then(result => {
         if (!result.success) throw new Error(result.error || 'Could not close out the old booking.');
+        // Post-write verification problems come back as a warning -- the
+        // close-out DID go through, but something should be checked by hand.
+        if (result.warning) alert('Old booking closed, but: ' + result.warning);
         const params = new URLSearchParams({
           contact: renter.contact || '',
           name: renter.name || '',
@@ -961,6 +968,11 @@ function confirmExtend(rowNumber, daysToExtend, amountPaid, extendMonth, paidBy)
     .then(res => res.json())
     .then(result => {
       if (!result.success) throw new Error(result.error || 'Could not save.');
+      // Post-write verification problems (the server re-reads everything
+      // it wrote -- customer row, income row, cash row, bikes/deposit
+      // totals -- and compares) come back as a warning: the extension DID
+      // save, but something should be checked by hand.
+      if (result.warning) alert('Extended, but: ' + result.warning);
       openExtendRowNumber = null;
       savingExtendRowNumber = null;
       return loadData();

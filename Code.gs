@@ -24,9 +24,137 @@ var BIKES_EXPENSE_SECTION_START_ROW = 52;
 // to this folder (owning it themselves is simplest).
 var PHOTOS_ROOT_FOLDER_ID = '1E11bBgY5BeohoSiDCffA1Uz4-YQJOt7U';
 
+// =====================================================================
+// ---- Post-write verification ("did it really land?") ----
+//
+// Every function below that writes to the spreadsheet also records WHAT
+// it wrote and WHERE (sheet + row + column + the value it expects to
+// find there) into VERIFY_LOG. Just before an action builds its
+// response, it calls runWriteVerification(), which flushes any pending
+// writes, re-reads every recorded cell fresh from the spreadsheet, and
+// compares. Anything that doesn't match -- or any write that was
+// skipped because its target tab/row couldn't be found -- comes back as
+// a warning in the response, so the page can tell the user to go check
+// the sheet manually instead of a write silently going missing.
+//
+// VERIFY_LOG is a script global: Apps Script runs each web-app request
+// in its own isolated execution, so there's no bleed between requests.
+// verifyReset() at the top of doPost clears it per-request anyway, as a
+// belt-and-braces measure.
+// =====================================================================
+var VERIFY_LOG = [];
+
+function verifyReset() {
+  VERIFY_LOG = [];
+}
+
+// Records: "cell (row, col) on sheetName should now hold `expected`".
+function verifyCell(sheetName, row, col, expected, label) {
+  VERIFY_LOG.push({ kind: 'cell', sheetName: sheetName, row: row, col: col, expected: expected, label: label });
+}
+
+// Records: "cell (row, col) on sheetName should NO LONGER hold
+// `oldValue`" -- used after deleting a row's cells, where whatever
+// shifted up into its place can't be known in advance, but finding the
+// exact same old value still sitting there means the delete probably
+// didn't take.
+function verifyCellChanged(sheetName, row, col, oldValue, label) {
+  VERIFY_LOG.push({ kind: 'changed', sheetName: sheetName, row: row, col: col, oldValue: oldValue, label: label });
+}
+
+// Records a problem noticed at write time (e.g. the target tab doesn't
+// exist, so nothing was written at all). These are always reported.
+function verifyProblem(message) {
+  VERIFY_LOG.push({ kind: 'problem', message: message });
+}
+
+// Normalizes a value so "the same thing" compares equal regardless of
+// how Sheets stored it: Dates become dd/MM/yyyy strings (or HH:mm for
+// time-only cells, which come back as dates near 1899-12-30), numbers
+// and numeric-looking strings become plain rounded numbers, and other
+// strings are trimmed + lowercased.
+function verifyNormalize(v, tz) {
+  if (v === null || v === undefined) return '';
+  if (v instanceof Date) {
+    if (v.getFullYear() < 1930) return Utilities.formatDate(v, tz, 'HH:mm');
+    return Utilities.formatDate(v, tz, 'dd/MM/yyyy');
+  }
+  if (typeof v === 'number') return String(Math.round(v * 100) / 100);
+  var s = v.toString().trim();
+  if (s !== '' && !isNaN(Number(s))) return String(Math.round(Number(s) * 100) / 100);
+  return s.toLowerCase();
+}
+
+function verifyValuesMatch(expected, actual, tz) {
+  var ne = verifyNormalize(expected, tz);
+  var na = verifyNormalize(actual, tz);
+  if (ne === na) return true;
+  if (ne !== '' && na !== '' && !isNaN(Number(ne)) && !isNaN(Number(na))) {
+    return Math.abs(Number(ne) - Number(na)) < 0.01; // numeric tolerance
+  }
+  return false;
+}
+
+// Human-friendly rendering of a value for warning messages.
+function verifyDisplay(v, tz) {
+  var n = verifyNormalize(v, tz);
+  return n === '' ? '(blank)' : n;
+}
+
+// Re-reads every recorded write fresh from the spreadsheet and compares.
+// Returns { problems: [...], checked: N, failed: N } -- problems is
+// empty when every check passed. Never throws: a check that itself
+// errors becomes a problem message instead, so verification can't
+// break the action.
+function runWriteVerification(ss) {
+  var problems = [];
+  var checked = 0;
+  var failed = 0;
+  if (!VERIFY_LOG.length) return { problems: problems, checked: checked, failed: failed };
+
+  try { SpreadsheetApp.flush(); } catch (flushErr) {}
+
+  var tz = ss.getSpreadsheetTimeZone();
+  for (var i = 0; i < VERIFY_LOG.length; i++) {
+    var entry = VERIFY_LOG[i];
+    try {
+      if (entry.kind === 'problem') {
+        problems.push(entry.message);
+        continue;
+      }
+      checked++;
+      var sheet = ss.getSheetByName(entry.sheetName);
+      if (!sheet) {
+        problems.push('CHECK FAILED (' + entry.label + '): tab "' + entry.sheetName + '" not found when re-reading.');
+        continue;
+      }
+      var actual = sheet.getRange(entry.row, entry.col).getValue();
+      var where = '"' + entry.sheetName + '" row ' + entry.row + ', column ' + columnToLetter(entry.col);
+      if (entry.kind === 'cell') {
+        if (!verifyValuesMatch(entry.expected, actual, tz)) {
+          failed++;
+          problems.push('CHECK FAILED (' + entry.label + '): expected "' + verifyDisplay(entry.expected, tz) +
+            '" at ' + where + ' but found "' + verifyDisplay(actual, tz) + '" -- please check the sheet manually.');
+        }
+      } else if (entry.kind === 'changed') {
+        if (verifyValuesMatch(entry.oldValue, actual, tz) && verifyNormalize(entry.oldValue, tz) !== '') {
+          failed++;
+          problems.push('CHECK (' + entry.label + '): ' + where + ' still shows "' + verifyDisplay(entry.oldValue, tz) +
+            '" after the delete -- if there were two identical entries this is expected, otherwise please check the sheet manually.');
+        }
+      }
+    } catch (checkErr) {
+      problems.push('Post-write check could not run (' + (entry.label || 'unlabelled write') + '): ' + checkErr.message);
+    }
+  }
+  VERIFY_LOG = [];
+  return { problems: problems, checked: checked, failed: failed };
+}
+
 function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents);
+    verifyReset();
 
     if (data.action === 'updateBike') {
       return updateBikeRow(data);
@@ -105,6 +233,16 @@ function doPost(e) {
     var newRange = sheet.getRange(newRow, 1, 1, numCols);
     newRange.setBorder(true, true, true, true, true, true);
 
+    // Register the key cells of the new customer row for post-write
+    // verification (re-read + compared just before responding).
+    verifyCell('customer', newRow, 2, data.contact || '', 'customer row: contact');
+    verifyCell('customer', newRow, 3, data.name || '', 'customer row: name');
+    verifyCell('customer', newRow, 6, data.bikeModel || '', 'customer row: bike');
+    verifyCell('customer', newRow, 8, formatIsoDateToDMY(data.rentingDateFrom), 'customer row: renting-from date');
+    verifyCell('customer', newRow, 9, formatIsoDateToDMY(data.returnDate), 'customer row: return date');
+    verifyCell('customer', newRow, 12, data.totalPrice || '', 'customer row: total price');
+    verifyCell('customer', newRow, 13, data.paidBy || '', 'customer row: paid by');
+
     var fromDate = data.rentingDateFrom ? new Date(data.rentingDateFrom + 'T00:00:00') : null;
     var toDate = data.returnDate ? new Date(data.returnDate + 'T00:00:00') : null;
     var dayCount = null;
@@ -115,20 +253,26 @@ function doPost(e) {
     }
 
     // Also log this rental as a row on the current month's income sheet
-    // (e.g. "July"). Wrapped so a problem here never breaks customer intake.
+    // (e.g. "July"). Wrapped so a problem here never breaks customer intake
+    // -- but no longer silently: any error comes back as a warning.
+    var incomeSheetWarning = null;
     try {
       appendMonthlyIncomeRow(ss, data, dayCount);
     } catch (incomeErr) {
-      // Swallow -- customer record is already saved; the income row is best-effort.
+      incomeSheetWarning = 'Income sheet: ' + incomeErr.message;
     }
 
     // If (and only if) paid in cash, also log it on the "cash" sheet.
+    // Wrapped so a problem here never breaks customer intake -- but no
+    // longer silently: any error comes back as a warning (a cash row
+    // once went missing with nothing to show for it).
+    var cashSheetWarning = null;
     try {
       if ((data.paidBy || '').toString().trim().toLowerCase() === 'cash') {
         appendCashSheetRow(ss, data, dayCount);
       }
     } catch (cashErr) {
-      // Swallow -- customer record is already saved; the cash row is best-effort.
+      cashSheetWarning = 'Cash sheet: ' + cashErr.message;
     }
 
     // Also roll this rental's amount into the bike's own running total for
@@ -183,9 +327,20 @@ function doPost(e) {
 
     var responsePayload = { success: true };
     var warnings = [];
+    if (incomeSheetWarning) warnings.push(incomeSheetWarning);
+    if (cashSheetWarning) warnings.push(cashSheetWarning);
     if (depositWarning) warnings.push(depositWarning);
     if (securityDepositWarning) warnings.push(securityDepositWarning);
     if (bikesSheetWarning) warnings.push(bikesSheetWarning);
+
+    // Post-write verification: re-read everything this intake wrote
+    // (customer row, monthly income row, cash row, bikes total, deposit
+    // cells) and confirm it actually landed where it should.
+    var verification = runWriteVerification(ss);
+    warnings = warnings.concat(verification.problems);
+    responsePayload.checksPassed = verification.checked - verification.failed;
+    responsePayload.checksTotal = verification.checked;
+
     if (warnings.length) responsePayload.warning = warnings.join(' ');
 
     return ContentService
@@ -301,7 +456,13 @@ function appendMonthlyIncomeRow(ss, data, dayCount) {
   var PAID_COL = 10;  // J
 
   var sheet = getCurrentMonthSheet(ss);
-  if (!sheet) return; // No tab for the current month -- nothing to log against.
+  if (!sheet) {
+    // No tab for the current month -- nothing to log against, but say so
+    // rather than skipping silently.
+    var missingMonth = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'MMMM');
+    verifyProblem('Income sheet: no tab named "' + missingMonth + '" was found, so this entry was NOT logged on the monthly income sheet.');
+    return;
+  }
 
   var targetRow = findFullyEmptyRow(sheet, 2, [DATE_COL, INCOME_COL, NAME_COL, AMOUNT_COL, PAID_COL]);
 
@@ -317,6 +478,13 @@ function appendMonthlyIncomeRow(ss, data, dayCount) {
   sheet.getRange(targetRow, DATE_COL, 1, 5).setValues([[
     new Date(), incomeText, data.name || '', amountValue, paidDisplay
   ]]);
+
+  var monthName = sheet.getName();
+  verifyCell(monthName, targetRow, DATE_COL, new Date(), '"' + monthName + '" income row: date');
+  verifyCell(monthName, targetRow, INCOME_COL, incomeText, '"' + monthName + '" income row: description');
+  verifyCell(monthName, targetRow, NAME_COL, data.name || '', '"' + monthName + '" income row: name');
+  verifyCell(monthName, targetRow, AMOUNT_COL, amountValue, '"' + monthName + '" income row: amount');
+  verifyCell(monthName, targetRow, PAID_COL, paidDisplay, '"' + monthName + '" income row: paid by');
 
   // Match the formatting (currency style, borders, banding) of the row
   // directly above, so the new row looks consistent with the rest.
@@ -349,7 +517,12 @@ function appendCashSheetRowText(ss, incomeText, rawAmount) {
   var AMOUNT_COL = 3; // C
 
   var sheet = ss.getSheetByName('cash');
-  if (!sheet) return; // No "cash" tab -- nothing to log against.
+  if (!sheet) {
+    // No "cash" tab -- nothing to log against, but say so rather than
+    // skipping silently.
+    verifyProblem('Cash sheet: no tab named "cash" was found, so this entry was NOT logged on the cash sheet.');
+    return;
+  }
 
   var targetRow = findFullyEmptyRow(sheet, 2, [DATE_COL, INCOME_COL, AMOUNT_COL]);
 
@@ -360,6 +533,10 @@ function appendCashSheetRowText(ss, incomeText, rawAmount) {
   sheet.getRange(targetRow, DATE_COL, 1, 3).setValues([[
     new Date(), incomeText, amountValue
   ]]);
+
+  verifyCell('cash', targetRow, DATE_COL, new Date(), 'cash sheet income row: date');
+  verifyCell('cash', targetRow, INCOME_COL, incomeText, 'cash sheet income row: description');
+  verifyCell('cash', targetRow, AMOUNT_COL, amountValue, 'cash sheet income row: amount');
 
   // Match the formatting (currency style, borders) of the row directly
   // above, so the new row looks consistent with the rest.
@@ -382,7 +559,12 @@ function appendCashExpenseRowText(ss, expenseText, rawAmount) {
   var AMOUNT_COL = 7; // G
 
   var sheet = ss.getSheetByName('cash');
-  if (!sheet) return; // No "cash" tab -- nothing to log against.
+  if (!sheet) {
+    // No "cash" tab -- nothing to log against, but say so rather than
+    // skipping silently.
+    verifyProblem('Cash sheet: no tab named "cash" was found, so this expense was NOT logged on the cash sheet.');
+    return;
+  }
 
   var targetRow = findFullyEmptyRow(sheet, 2, [DATE_COL, LABEL_COL, AMOUNT_COL]);
 
@@ -393,6 +575,10 @@ function appendCashExpenseRowText(ss, expenseText, rawAmount) {
   sheet.getRange(targetRow, DATE_COL, 1, 3).setValues([[
     new Date(), expenseText, amountValue
   ]]);
+
+  verifyCell('cash', targetRow, DATE_COL, new Date(), 'cash sheet expense row: date');
+  verifyCell('cash', targetRow, LABEL_COL, expenseText, 'cash sheet expense row: description');
+  verifyCell('cash', targetRow, AMOUNT_COL, amountValue, 'cash sheet expense row: amount');
 
   // Match the formatting (currency style, borders) of the row directly
   // above, so the new row looks consistent with the rest.
@@ -421,17 +607,26 @@ function addAmountToDepositCell(sheet, row, col, rawAmount) {
   var range = sheet.getRange(row, col);
   var formula = range.getFormula();
 
+  // The evaluated value before this write -- the post-write check below
+  // expects the cell to evaluate to (before + amount) afterwards.
+  var beforeVal = Number(range.getValue());
+  if (isNaN(beforeVal)) beforeVal = 0;
+
   if (formula && formula.charAt(0) === '=') {
     range.setFormula(formula + '+' + amount);
-    return;
+  } else {
+    var currentValue = range.getValue();
+    if (currentValue === '' || currentValue === null || isNaN(Number(currentValue))) {
+      range.setFormula('=' + amount);
+      beforeVal = 0;
+    } else {
+      range.setFormula('=' + Number(currentValue) + '+' + amount);
+      beforeVal = Number(currentValue);
+    }
   }
 
-  var currentValue = range.getValue();
-  if (currentValue === '' || currentValue === null || isNaN(Number(currentValue))) {
-    range.setFormula('=' + amount);
-  } else {
-    range.setFormula('=' + Number(currentValue) + '+' + amount);
-  }
+  verifyCell(sheet.getName(), row, col, beforeVal + amount,
+    'running deposit total at "' + sheet.getName() + '" ' + columnToLetter(col) + row);
 }
 
 // ---- Same fuzzy bike-name matching used client-side in bikes.html and
@@ -566,17 +761,27 @@ function addRentalAmountToBikesSheet(ss, bikeModel, rawAmount, monthNameOverride
 
   var cell = sheet.getRange(row, col);
   var formula = cell.getFormula();
+
+  // The evaluated value before this write -- the post-write check below
+  // expects the cell to evaluate to (before + amount) afterwards.
+  var beforeVal = Number(cell.getValue());
+  if (isNaN(beforeVal)) beforeVal = 0;
+
   if (formula && formula.charAt(0) === '=') {
     cell.setFormula(formula + '+' + amount);
-    return;
+  } else {
+    var currentValue = cell.getValue();
+    if (currentValue === '' || currentValue === null || isNaN(Number(currentValue))) {
+      cell.setFormula('=' + amount);
+      beforeVal = 0;
+    } else {
+      cell.setFormula('=' + Number(currentValue) + '+' + amount);
+      beforeVal = Number(currentValue);
+    }
   }
 
-  var currentValue = cell.getValue();
-  if (currentValue === '' || currentValue === null || isNaN(Number(currentValue))) {
-    cell.setFormula('=' + amount);
-  } else {
-    cell.setFormula('=' + Number(currentValue) + '+' + amount);
-  }
+  verifyCell(sheet.getName(), row, col, beforeVal + amount,
+    '"' + bikeNameTrimmed + '" monthly total (' + monthName + ') on the "' + BIKES_SHEET_NAME + '" sheet');
 }
 
 // ---- doGet: action = 'bikesList' -- returns every unique bike name in
@@ -777,6 +982,11 @@ function logSecurityDeposit(ss, methodLower, rawAmount, customerName) {
   sheet.getRange(targetRow, cols.date).setValue(new Date());
   sheet.getRange(targetRow, cols.amount).setValue(Number(rawAmount) || rawAmount || '');
   sheet.getRange(targetRow, cols.name).setValue(customerName || '');
+
+  var secMonthName = sheet.getName();
+  verifyCell(secMonthName, targetRow, cols.date, new Date(), methodLower + ' security deposit: date');
+  verifyCell(secMonthName, targetRow, cols.amount, Number(rawAmount) || rawAmount || '', methodLower + ' security deposit: amount');
+  verifyCell(secMonthName, targetRow, cols.name, customerName || '', methodLower + ' security deposit: customer name');
 }
 
 // ---- Update one row in the Parts and Oil change tab ----
@@ -819,11 +1029,17 @@ function updateBikeRow(data) {
       var col = headerToCol[headerName];
       if (col) {
         sheet.getRange(targetRow, col).setValue(fields[headerName]);
+        verifyCell(PARTS_SHEET_NAME, targetRow, col, fields[headerName],
+          '"' + headerName + '" for ' + data.bike);
       }
     });
 
+    var responsePayload = { success: true };
+    var verification = runWriteVerification(ss);
+    if (verification.problems.length) responsePayload.warning = verification.problems.join(' ');
+
     return ContentService
-      .createTextOutput(JSON.stringify({ success: true }))
+      .createTextOutput(JSON.stringify(responsePayload))
       .setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {
@@ -875,8 +1091,15 @@ function markBikeReturned(data) {
 
     sheet.getRange(rowNumber, CUSTOMER_SITUATION_COL).setValue('Returned');
 
+    verifyCell('customer', rowNumber, CUSTOMER_RETURN_DATE_COL, dateValue, 'return date');
+    verifyCell('customer', rowNumber, CUSTOMER_SITUATION_COL, 'Returned', 'situation');
+
+    var responsePayload = { success: true };
+    var verification = runWriteVerification(ss);
+    if (verification.problems.length) responsePayload.warning = verification.problems.join(' ');
+
     return ContentService
-      .createTextOutput(JSON.stringify({ success: true }))
+      .createTextOutput(JSON.stringify(responsePayload))
       .setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {
@@ -949,6 +1172,10 @@ function extendBikeRow(data) {
     // new amount into the existing figure).
     sheet.getRange(rowNumber, CUSTOMER_PAIDBY_COL).setValue(paidBy);
 
+    verifyCell('customer', rowNumber, CUSTOMER_RETURN_DATE_COL, currentDate, 'extended return date');
+    verifyCell('customer', rowNumber, CUSTOMER_TOTAL_PRICE_COL, currentPrice + amountPaid, 'total price after extension');
+    verifyCell('customer', rowNumber, CUSTOMER_PAIDBY_COL, paidBy, 'paid by after extension');
+
     // Everything below mirrors what a brand-new rental (in doPost, above)
     // logs for its payment — the monthly income sheet, the cash sheet (if
     // paid in cash), and the Wise/Revolut running deposit total. A short
@@ -997,7 +1224,14 @@ function extendBikeRow(data) {
       warnings.push('Bikes sheet: ' + bikesErr.message);
     }
 
+    // Post-write verification: re-read everything this extension wrote
+    // and confirm it actually landed where it should.
+    var verification = runWriteVerification(ss);
+    warnings = warnings.concat(verification.problems);
+
     var responsePayload = { success: true };
+    responsePayload.checksPassed = verification.checked - verification.failed;
+    responsePayload.checksTotal = verification.checked;
     if (warnings.length) responsePayload.warning = warnings.join(' ');
 
     return ContentService
@@ -1042,8 +1276,14 @@ function closeBikeForExtend(data) {
     sheet.getRange(rowNumber, CUSTOMER_RETURN_TIME_COL).setFontColor('#000000');
     sheet.getRange(rowNumber, CUSTOMER_SITUATION_COL).setValue('Returned');
 
+    verifyCell('customer', rowNumber, CUSTOMER_SITUATION_COL, 'Returned', 'situation (close for extend)');
+
+    var responsePayload = { success: true };
+    var verification = runWriteVerification(ss);
+    if (verification.problems.length) responsePayload.warning = verification.problems.join(' ');
+
     return ContentService
-      .createTextOutput(JSON.stringify({ success: true }))
+      .createTextOutput(JSON.stringify(responsePayload))
       .setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {
@@ -1928,6 +2168,10 @@ function deleteCashRow(ss, cashRow, side, expectedText, expectedAmount) {
     throw new Error('Could not confirm "cash" sheet row ' + cashRow + ' still matches this entry -- it was NOT removed. Please check/remove it manually if needed.');
   }
   sheet.getRange(cashRow, dateCol, 1, 3).deleteCells(SpreadsheetApp.Dimension.ROWS);
+
+  // Post-write verification: the deleted entry's description should no
+  // longer be sitting at this cash row (whatever shifted up replaces it).
+  verifyCellChanged('cash', cashRow, labelCol, expectedText, 'deleted cash sheet row');
 }
 
 // ---- Updates a "cash" sheet row's description + amount in place (no
@@ -1944,6 +2188,9 @@ function updateCashRow(ss, cashRow, side, expectedOldText, expectedOldAmount, ne
   sheet.getRange(cashRow, labelCol).setValue(newText);
   var amountValue = (newAmount === '' || newAmount === undefined || newAmount === null || isNaN(Number(newAmount))) ? '' : Number(newAmount);
   sheet.getRange(cashRow, amountCol).setValue(amountValue);
+
+  verifyCell('cash', cashRow, labelCol, newText, 'updated cash sheet row: description');
+  verifyCell('cash', cashRow, amountCol, amountValue, 'updated cash sheet row: amount');
 }
 
 // ---- action:'addExpense' -- data: { monthIndex, date (yyyy-MM-dd),
@@ -1972,6 +2219,12 @@ function addExpenseRow(data) {
         ? '' : Number(data.amount)
     );
     sheet.getRange(row, 4).setValue(data.payment || '');
+    verifyCell(sheet.getName(), row, 1, formatIsoDateToDMY(data.date) || '', 'expense row: date');
+    verifyCell(sheet.getName(), row, 2, data.expense || '', 'expense row: description');
+    verifyCell(sheet.getName(), row, 3,
+      (data.amount === '' || data.amount === undefined || data.amount === null || isNaN(Number(data.amount)))
+        ? '' : Number(data.amount), 'expense row: amount');
+    verifyCell(sheet.getName(), row, 4, data.payment || '', 'expense row: payment');
     applyExpenseTypeColor(sheet, row, data.expenseType);
     var expenseBikeSplits = Array.isArray(data.expenseBikeSplits) ? data.expenseBikeSplits : [];
     setExpenseBikeSplits(sheet, row, expenseBikeSplits);
@@ -2015,11 +2268,18 @@ function addExpenseRow(data) {
     });
     if (bikeWarnings.length) warnings.push('Bikes sheet (expense): ' + bikeWarnings.join(' '));
 
+    // Post-write verification: re-read everything this add wrote and
+    // confirm it actually landed where it should.
+    var verification = runWriteVerification(ss);
+    warnings = warnings.concat(verification.problems);
+
     // shifted: true only in the rare case a row had to be inserted above
     // the totals block, which pushes every other row on the sheet down by
     // one -- the client can't safely trust cached row numbers after that,
     // so it should do a full reload instead of a local-only update.
     var responsePayload = { success: true, row: row, shifted: freeRow.inserted };
+    responsePayload.checksPassed = verification.checked - verification.failed;
+    responsePayload.checksTotal = verification.checked;
     if (warnings.length) responsePayload.warning = warnings.join(' ');
 
     return ContentService
@@ -2097,6 +2357,10 @@ function editExpenseRow(data) {
     sheet.getRange(row, 2).setValue(data.expense || '');
     sheet.getRange(row, 3).setValue(newAmount);
     sheet.getRange(row, 4).setValue(data.payment || '');
+    verifyCell(sheet.getName(), row, 1, formatIsoDateToDMY(data.date) || '', 'edited expense row: date');
+    verifyCell(sheet.getName(), row, 2, data.expense || '', 'edited expense row: description');
+    verifyCell(sheet.getName(), row, 3, newAmount, 'edited expense row: amount');
+    verifyCell(sheet.getName(), row, 4, data.payment || '', 'edited expense row: payment');
     applyExpenseTypeColor(sheet, row, data.expenseType);
     setExpenseBikeSplits(sheet, row, newBikeSplits);
     var newTypeKey = (data.expenseType || 'business').toString().trim().toLowerCase();
@@ -2173,7 +2437,14 @@ function editExpenseRow(data) {
       warnings.push('Cash sheet: ' + cashErr.message);
     }
 
+    // Post-write verification: re-read everything this edit wrote and
+    // confirm it actually landed where it should.
+    var verification = runWriteVerification(ss);
+    warnings = warnings.concat(verification.problems);
+
     var responsePayload = { success: true, row: row };
+    responsePayload.checksPassed = verification.checked - verification.failed;
+    responsePayload.checksTotal = verification.checked;
     if (warnings.length) responsePayload.warning = warnings.join(' ');
 
     return ContentService
@@ -2222,6 +2493,13 @@ function addIncomeRow(data) {
         ? '' : Number(data.amount)
     );
     sheet.getRange(row, 10).setValue(data.paidBy || '');
+    verifyCell(sheet.getName(), row, 6, formatIsoDateToDMY(data.date) || '', 'income row: date');
+    verifyCell(sheet.getName(), row, 7, data.income || '', 'income row: description');
+    verifyCell(sheet.getName(), row, 8, data.name || '', 'income row: name');
+    verifyCell(sheet.getName(), row, 9,
+      (data.amount === '' || data.amount === undefined || data.amount === null || isNaN(Number(data.amount)))
+        ? '' : Number(data.amount), 'income row: amount');
+    verifyCell(sheet.getName(), row, 10, data.paidBy || '', 'income row: paid by');
 
     var warnings = [];
     var paidByLower = (data.paidBy || '').toString().trim().toLowerCase();
@@ -2242,9 +2520,16 @@ function addIncomeRow(data) {
       warnings.push('Deposit total: ' + depositErr.message);
     }
 
+    // Post-write verification: re-read everything this add wrote and
+    // confirm it actually landed where it should.
+    var verification = runWriteVerification(ss);
+    warnings = warnings.concat(verification.problems);
+
     // shifted: true only in the rare case a row had to be inserted above
     // the totals block -- see addExpenseRow's comment on the same field.
     var responsePayload = { success: true, row: row, shifted: freeRow.inserted };
+    responsePayload.checksPassed = verification.checked - verification.failed;
+    responsePayload.checksTotal = verification.checked;
     if (warnings.length) responsePayload.warning = warnings.join(' ');
 
     return ContentService
@@ -2326,6 +2611,11 @@ function editIncomeRow(data) {
     sheet.getRange(row, 8).setValue(data.name || '');
     sheet.getRange(row, 9).setValue(newAmount);
     sheet.getRange(row, 10).setValue(data.paidBy || '');
+    verifyCell(sheet.getName(), row, 6, formatIsoDateToDMY(data.date) || '', 'edited income row: date');
+    verifyCell(sheet.getName(), row, 7, data.income || '', 'edited income row: description');
+    verifyCell(sheet.getName(), row, 8, data.name || '', 'edited income row: name');
+    verifyCell(sheet.getName(), row, 9, newAmount, 'edited income row: amount');
+    verifyCell(sheet.getName(), row, 10, data.paidBy || '', 'edited income row: paid by');
 
     var warnings = [];
 
@@ -2395,7 +2685,14 @@ function editIncomeRow(data) {
       warnings.push('Bikes sheet (adding new amount): ' + bikeApplyErr.message);
     }
 
+    // Post-write verification: re-read everything this edit wrote and
+    // confirm it actually landed where it should.
+    var verification = runWriteVerification(ss);
+    warnings = warnings.concat(verification.problems);
+
     var responsePayload = { success: true, row: row };
+    responsePayload.checksPassed = verification.checked - verification.failed;
+    responsePayload.checksTotal = verification.checked;
     if (warnings.length) responsePayload.warning = warnings.join(' ');
 
     return ContentService
@@ -2494,6 +2791,12 @@ function deleteExpenseRow(data) {
     // is left completely alone.
     sheet.getRange(row, 1, 1, 4).deleteCells(SpreadsheetApp.Dimension.ROWS);
 
+    // Post-write verification: the deleted entry's description should no
+    // longer be sitting at this row (whatever shifted up replaces it).
+    verifyCellChanged(sheet.getName(), row, 2, expense, 'deleted expense row');
+    var verification = runWriteVerification(ss);
+    warnings = warnings.concat(verification.problems);
+
     var responsePayload = { success: true };
     if (warnings.length) responsePayload.warning = warnings.join(' ');
 
@@ -2585,6 +2888,12 @@ function deleteIncomeRow(data) {
     // columns only -- up. The expense side (A-D) of this same row, if any,
     // is left completely alone.
     sheet.getRange(row, 6, 1, 5).deleteCells(SpreadsheetApp.Dimension.ROWS);
+
+    // Post-write verification: the deleted entry's description should no
+    // longer be sitting at this row (whatever shifted up replaces it).
+    verifyCellChanged(sheet.getName(), row, 7, income, 'deleted income row');
+    var verification = runWriteVerification(ss);
+    warnings = warnings.concat(verification.problems);
 
     var responsePayload = { success: true };
     if (warnings.length) responsePayload.warning = warnings.join(' ');

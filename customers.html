@@ -641,7 +641,14 @@ form.addEventListener('submit', async (e) => {
         statusBox.textContent = 'Added — "' + payload.name + '" saved, but: ' + data.warning;
         statusBox.className = 'status warn';
       } else {
-        statusBox.textContent = 'Added — "' + payload.name + '" saved to the sheet.';
+        // checksTotal/checksPassed come from the server's post-write
+        // verification: it re-reads every cell it wrote (customer row,
+        // monthly income row, cash row, bikes total, deposit cells) and
+        // confirms each landed correctly.
+        const checksNote = data.checksTotal
+          ? ' ✓ Verified: ' + data.checksPassed + '/' + data.checksTotal + ' write-back checks passed.'
+          : '';
+        statusBox.textContent = 'Added — "' + payload.name + '" saved to the sheet.' + checksNote;
         statusBox.className = 'status ok';
       }
       sessionCount++;

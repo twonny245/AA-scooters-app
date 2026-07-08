@@ -771,8 +771,16 @@ async function saveFields(fields, btn, statusBox, idleLabel) {
     });
     const data = await res.json();
     if (data.success) {
-      statusBox.textContent = 'Saved — "' + payload.bike + '" updated.';
-      statusBox.className = 'status ok';
+      if (data.warning) {
+        // Post-write verification problems (the server re-reads what it
+        // wrote and compares) -- the save DID go through, but something
+        // should be checked by hand.
+        statusBox.textContent = 'Saved — "' + payload.bike + '" updated, but: ' + data.warning;
+        statusBox.className = 'status err';
+      } else {
+        statusBox.textContent = 'Saved — "' + payload.bike + '" updated.';
+        statusBox.className = 'status ok';
+      }
       // Update local cache so re-selecting shows the fresh values without a refetch
       Object.assign(currentRow, fields);
     } else {
