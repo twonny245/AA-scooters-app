@@ -254,6 +254,17 @@ function formatDateDisplay(str) {
   return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+// yyyy-MM-dd (what <input type="date"> gives us) -> dd/MM/yyyy (how the
+// sheet -- and customerRows.returnDate -- stores it). Used to update a
+// customer row's returnDate locally right after a successful "Return",
+// without waiting on a full reload.
+function isoToDmy(iso) {
+  const m = String(iso || '').trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (!m) return '';
+  const y = m[1], mo = m[2].padStart(2, '0'), d = m[3].padStart(2, '0');
+  return `${d}/${mo}/${y}`;
+}
+
 function normalizeBikeName(s) {
   return (s || '').toString()
     .toLowerCase()
@@ -821,7 +832,21 @@ function confirmReturn(rowNumber, isoDate) {
       if (!result.success) throw new Error(result.error || 'Could not save.');
       openReturnRowNumber = null;
       savingReturnRowNumber = null;
-      return loadData();
+
+      // markReturned only ever touches this one customer row (return date,
+      // return time's font color, and situation) -- nothing else shifts or
+      // changes, so the on-page list can be updated directly instead of
+      // waiting on a full reload of the bikes + customer data.
+      const row = (customerRows || []).find(r => r.rowNumber === rowNumber);
+      if (row) {
+        row.returnDate = isoToDmy(isoDate);
+        row.situation = 'Returned';
+        render();
+      } else {
+        // Shouldn't normally happen, but fall back to a full reload rather
+        // than leave the list looking out of date if it ever does.
+        return loadData();
+      }
     })
     .catch(err => {
       savingReturnRowNumber = null;

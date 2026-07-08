@@ -313,8 +313,17 @@ function closeLightbox() {
   lightboxImg.src = '';
 }
 lightboxClose.addEventListener('click', closeLightbox);
+// Close only on a genuine click on the backdrop itself -- not when the
+// mousedown started elsewhere (e.g. dragging to select something) and the
+// mouseup happens to land on the backdrop. See accounts.html's modal for
+// the same fix and the reasoning behind it.
+let lightboxMouseDownOnBackdrop = false;
+lightbox.addEventListener('mousedown', (e) => {
+  lightboxMouseDownOnBackdrop = (e.target === lightbox);
+});
 lightbox.addEventListener('click', (e) => {
-  if (e.target === lightbox) closeLightbox();
+  if (e.target === lightbox && lightboxMouseDownOnBackdrop) closeLightbox();
+  lightboxMouseDownOnBackdrop = false;
 });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeLightbox();

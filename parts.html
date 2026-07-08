@@ -128,6 +128,13 @@
     position:sticky; bottom:0; margin-top:4px;
   }
 
+  .show-more-btn{
+    background:#fff; color:var(--petrol); border:1px solid var(--line);
+    font-size:14.5px; letter-spacing:.06em; padding:13px;
+    margin:0 0 16px;
+  }
+  .show-more-btn:active{ transform:scale(.99); }
+
   .field-with-action{ display:flex; align-items:center; gap:8px; }
   .field-with-action input{ flex:1; }
   .camera-btn{
@@ -236,12 +243,23 @@
       <button type="button" class="change-btn" id="changeBikeBtn">Change bike</button>
     </div>
 
-    <div class="card">
-      <h2>Record</h2>
-      <div id="fieldsBox"></div>
-      <div class="save-bar">
-        <button type="button" id="saveBtn">Save changes</button>
-        <div class="status" id="statusBox"></div>
+    <div class="card" id="kmCard">
+      <h2>Kilometers check</h2>
+      <div id="kmFieldsBox"></div>
+      <button type="button" id="kmSaveBtn">Update kilometers</button>
+      <div class="status" id="kmStatusBox"></div>
+    </div>
+
+    <button type="button" class="show-more-btn" id="showMoreBtn">Show more ▾</button>
+
+    <div id="moreSection" class="hidden">
+      <div class="card">
+        <h2>Record</h2>
+        <div id="fieldsBox"></div>
+        <div class="save-bar">
+          <button type="button" id="saveBtn">Save changes</button>
+          <div class="status" id="statusBox"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -291,6 +309,17 @@
     <div class="modal-actions">
       <button type="button" class="cancel-btn" id="odoCancelBtn">Cancel</button>
       <button type="button" id="odoConfirmBtn">Confirm &amp; save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="kmWarningModal">
+  <div class="modal-card">
+    <h3>Double-check this reading</h3>
+    <div id="kmWarningMsg" style="font-size:14px; color:var(--ink); line-height:1.6; margin-bottom:4px;"></div>
+    <div class="modal-actions">
+      <button type="button" class="cancel-btn" id="kmWarningCancelBtn">Cancel</button>
+      <button type="button" id="kmWarningConfirmBtn">Yes, this is correct</button>
     </div>
   </div>
 </div>
@@ -513,6 +542,8 @@ function selectBike(bikeName) {
 
   const box = document.getElementById('fieldsBox');
   box.innerHTML = '';
+  const kmBox = document.getElementById('kmFieldsBox');
+  kmBox.innerHTML = '';
 
   const headers = partsData.headers;
   const notesStart = findNotesGroupStart(headers); // index of "horn switch", or -1
@@ -530,13 +561,18 @@ function selectBike(bikeName) {
     if (i >= individualEnd) return; // handled by the Notes box below
     const value = row[header] || '';
     const id = fieldIdFor(header, i);
+    // The km reading and its check date get their own quick-update card at
+    // the top — that's the pair updated most often, day to day.
+    const isQuickField = (header === kmHeaderActual) || (header === dateHeaderActual);
     const wrap = document.createElement('div');
 
     const label = document.createElement('label');
     label.setAttribute('for', id);
     // The sheet column itself can stay named "Last oil check" — the GUI
     // always shows the clearer "Last kilometers check" for this field.
-    label.textContent = (header === kmHeaderActual) ? 'Last kilometers check' : header;
+    if (header === kmHeaderActual) label.textContent = 'Last kilometers check';
+    else if (header === dateHeaderActual) label.textContent = 'Date checked';
+    else label.textContent = header;
     wrap.appendChild(label);
 
     if (header.trim().toLowerCase() === 'status') {
@@ -585,8 +621,23 @@ function selectBike(bikeName) {
       }
     }
 
-    box.appendChild(wrap);
+    (isQuickField ? kmBox : box).appendChild(wrap);
   });
+
+  // If the sheet is missing the km/date columns, fall back to the full form.
+  const kmCard = document.getElementById('kmCard');
+  const showMoreBtn = document.getElementById('showMoreBtn');
+  const moreSection = document.getElementById('moreSection');
+  if (kmBox.children.length) {
+    kmCard.classList.remove('hidden');
+    showMoreBtn.classList.remove('hidden');
+    moreSection.classList.add('hidden'); // collapsed by default on every load
+    showMoreBtn.textContent = 'Show more ▾';
+  } else {
+    kmCard.classList.add('hidden');
+    showMoreBtn.classList.add('hidden');
+    moreSection.classList.remove('hidden');
+  }
 
   // Combined Notes box for every column after "horn switch"
   if (notesStart !== -1 && individualEnd < headers.length) {
@@ -612,7 +663,14 @@ function selectBike(bikeName) {
   }
 
   document.getElementById('statusBox').className = 'status';
+  document.getElementById('kmStatusBox').className = 'status';
 }
+
+document.getElementById('showMoreBtn').addEventListener('click', () => {
+  const more = document.getElementById('moreSection');
+  const nowHidden = more.classList.toggle('hidden');
+  document.getElementById('showMoreBtn').textContent = nowHidden ? 'Show more ▾' : 'Show less ▴';
+});
 
 document.getElementById('changeBikeBtn').addEventListener('click', () => {
   document.getElementById('editSection').classList.add('hidden');
@@ -622,31 +680,82 @@ document.getElementById('changeBikeBtn').addEventListener('click', () => {
 
 // ---------------- Saving ----------------
 
-async function performSave() {
-  if (!currentRow) return;
-  const saveBtn = document.getElementById('saveBtn');
-  const statusBox = document.getElementById('statusBox');
-  statusBox.className = 'status';
-  saveBtn.disabled = true;
-  saveBtn.textContent = 'Saving…';
-
-  const fields = {};
-  document.querySelectorAll('#fieldsBox [data-header]').forEach(el => {
+// Reads every [data-header] input inside the given box into `fields`
+// (converting date inputs back to the sheet's dd/mm/yyyy text).
+function collectFieldsIn(boxId, fields) {
+  document.querySelectorAll('#' + boxId + ' [data-header]').forEach(el => {
     fields[el.dataset.header] = el.dataset.isDate === 'true'
       ? inputValueToDdMmYyyy(el.value)
       : el.value;
   });
+  return fields;
+}
 
-  // The Notes box represents several trailing columns folded into one.
-  // Write its text into the first of those columns and clear the rest,
-  // so the data actually lives in a single place going forward.
-  const notesTextarea = document.getElementById('notesField');
-  if (notesTextarea) {
-    const extraHeaders = JSON.parse(notesTextarea.dataset.extraHeaders);
-    extraHeaders.forEach((h, i) => {
-      fields[h] = i === 0 ? notesTextarea.value : '';
-    });
-  }
+// ---- Kilometers safety check ----
+// Guards against typos/OCR misreads: if a new "Last kilometers check"
+// value is LESS than the bike's current reading, or 100+ km MORE than it,
+// this flashes a confirmation modal showing the bike, the previous
+// reading, the new one, and the difference, before anything is saved.
+// Returns a Promise resolving true (go ahead and save) or false (user
+// cancelled -- nothing gets saved). Doesn't close on a backdrop click,
+// only the two buttons -- same as this file's other modals (sourceModal/
+// cropModal/odoModal), and appropriate here since this is a deliberate
+// confirm-or-cancel gate rather than an easily-dismissed popup.
+let kmWarningResolve = null;
+function showKmWarning(bikeName, oldKm, newKm) {
+  return new Promise((resolve) => {
+    kmWarningResolve = resolve;
+    const diff = newKm - oldKm;
+    const direction = diff < 0 ? 'less' : 'more';
+    document.getElementById('kmWarningMsg').innerHTML =
+      '<b>' + bikeName + '</b> was last checked at <b>' + oldKm.toLocaleString() + ' km</b>. ' +
+      "You're entering <b>" + newKm.toLocaleString() + ' km</b>, which is <b>' +
+      Math.abs(diff).toLocaleString() + ' km ' + direction + '</b> than the last reading. Are you sure this is correct?';
+    document.getElementById('kmWarningModal').classList.add('show');
+  });
+}
+function resolveKmWarning(result) {
+  document.getElementById('kmWarningModal').classList.remove('show');
+  if (kmWarningResolve) kmWarningResolve(result);
+  kmWarningResolve = null;
+}
+document.getElementById('kmWarningCancelBtn').addEventListener('click', () => resolveKmWarning(false));
+document.getElementById('kmWarningConfirmBtn').addEventListener('click', () => resolveKmWarning(true));
+
+// Checks the km field (if present in this particular save) against
+// currentRow's existing value. Returns true if it's fine to proceed
+// (no previous value to compare against, or the change is within a
+// normal range), or the user's choice after being shown the warning.
+async function confirmKmChangeIfNeeded(fields) {
+  if (!kmHeaderName || !Object.prototype.hasOwnProperty.call(fields, kmHeaderName)) return true;
+
+  const oldKmRaw = currentRow[kmHeaderName];
+  const newKmRaw = fields[kmHeaderName];
+  const oldKm = Number(oldKmRaw);
+  const newKm = Number(newKmRaw);
+  const oldValid = oldKmRaw !== '' && oldKmRaw !== undefined && oldKmRaw !== null && !isNaN(oldKm);
+  const newValid = newKmRaw !== '' && newKmRaw !== undefined && newKmRaw !== null && !isNaN(newKm);
+  if (!oldValid || !newValid) return true; // nothing to compare against yet
+
+  const diff = newKm - oldKm;
+  if (diff >= 0 && diff < 100) return true; // normal, expected increase
+
+  const bikeName = currentRow[keyHeader] || 'This bike';
+  return showKmWarning(bikeName, oldKm, newKm);
+}
+
+// Shared POST-and-report routine used by both the quick "Update kilometers"
+// button and the full "Save changes" button — only the set of fields sent
+// and the button/status elements differ.
+async function saveFields(fields, btn, statusBox, idleLabel) {
+  if (!currentRow) return;
+
+  const okToProceed = await confirmKmChangeIfNeeded(fields);
+  if (!okToProceed) return; // user cancelled -- nothing saved
+
+  statusBox.className = 'status';
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
 
   const payload = {
     action: 'updateBike',
@@ -673,12 +782,48 @@ async function performSave() {
     statusBox.textContent = 'Could not save: ' + err.message;
     statusBox.className = 'status err';
   } finally {
-    saveBtn.disabled = false;
-    saveBtn.textContent = 'Save changes';
+    btn.disabled = false;
+    btn.textContent = idleLabel;
   }
 }
 
+// Quick save: writes only the km reading + date checked from the top card.
+async function performQuickSave() {
+  const fields = collectFieldsIn('kmFieldsBox', {});
+  await saveFields(
+    fields,
+    document.getElementById('kmSaveBtn'),
+    document.getElementById('kmStatusBox'),
+    'Update kilometers'
+  );
+}
+
+// Full save: everything — the top card's km/date plus the whole record.
+async function performSave() {
+  const fields = collectFieldsIn('kmFieldsBox', {});
+  collectFieldsIn('fieldsBox', fields);
+
+  // The Notes box represents several trailing columns folded into one.
+  // Write its text into the first of those columns and clear the rest,
+  // so the data actually lives in a single place going forward.
+  const notesTextarea = document.getElementById('notesField');
+  if (notesTextarea) {
+    const extraHeaders = JSON.parse(notesTextarea.dataset.extraHeaders);
+    extraHeaders.forEach((h, i) => {
+      fields[h] = i === 0 ? notesTextarea.value : '';
+    });
+  }
+
+  await saveFields(
+    fields,
+    document.getElementById('saveBtn'),
+    document.getElementById('statusBox'),
+    'Save changes'
+  );
+}
+
 document.getElementById('saveBtn').addEventListener('click', performSave);
+document.getElementById('kmSaveBtn').addEventListener('click', performQuickSave);
 
 // ---------------- Camera capture + auto-read for speedometer photos ----------------
 // This runs an OCR pass entirely in the browser (no server or API key
@@ -996,14 +1141,16 @@ document.getElementById('odoConfirmBtn').addEventListener('click', async () => {
   if (kmInput) kmInput.value = kmVal;
 
   if (dateHeaderName) {
-    const dateInput = document.querySelector('#fieldsBox [data-header="' + CSS.escape(dateHeaderName) + '"]');
+    const dateInput = document.querySelector('#editSection [data-header="' + CSS.escape(dateHeaderName) + '"]');
     if (dateInput) dateInput.value = dateVal;
   }
 
   document.getElementById('odoModal').classList.remove('show');
   ocrTargetKmFieldId = null;
 
-  await performSave();
+  // Photo flow only touches the km reading + date, so the quick save
+  // (km + date only) is the right write here.
+  await performQuickSave();
 });
 </script>
 

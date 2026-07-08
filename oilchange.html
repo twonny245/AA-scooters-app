@@ -385,6 +385,22 @@ function findKmCheckHeader(headers) {
   return null;
 }
 
+// Days between the "date" column (when the km reading was last checked)
+// and today, computed fresh from the raw date string rather than trusting
+// a sheet-computed column -- this is the figure the Date tab now sorts
+// and displays by, and what "Checked: ... (N days ago)" shows on every
+// card regardless of which tab is active. Returns NaN if there's no
+// parseable date to work from.
+function daysSinceChecked(row, headers) {
+  const dateHeader = findHeader(headers, 'date');
+  const d = parseFlexibleDate(row[dateHeader]);
+  if (!d) return NaN;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  d.setHours(0, 0, 0, 0);
+  return Math.round((today - d) / (1000 * 60 * 60 * 24));
+}
+
 function cardHtml(row, headers, metricLabel, metricValue) {
   const bikeHeader = headers[0];
   const operationStatus = findOperationStatus(row[bikeHeader]);
@@ -393,7 +409,11 @@ function cardHtml(row, headers, metricLabel, metricValue) {
   const oilChange = row[findHeader(headers, 'oil change')] || '—';
   const nextOil = row[findHeader(headers, 'next oil change')] || '—';
   const lastCheck = row[findKmCheckHeader(headers)] || '—';
-  const daysSince = row[findHeader(headers, 'days since last oil change')] || '—';
+  const checkedDateRaw = row[findHeader(headers, 'date')] || '';
+  const daysSinceCheck = daysSinceChecked(row, headers);
+  const checkedDisplay = checkedDateRaw
+    ? checkedDateRaw + (isNaN(daysSinceCheck) ? '' : ' (' + daysSinceCheck.toLocaleString('en-US') + (daysSinceCheck === 1 ? ' day ago)' : ' days ago)'))
+    : '—';
 
   const renter = findCurrentRenter(row[bikeHeader]);
   const renterLine = renter
@@ -408,8 +428,9 @@ function cardHtml(row, headers, metricLabel, metricValue) {
       </div>
       ${renterLine}
       <div class="bc-details">
-        <b>Status:</b> ${status || '—'} &nbsp; <b>Oil change:</b> ${oilChange} &nbsp; <b>Days since:</b> ${daysSince}<br>
-        <b>Last kilometers check:</b> ${lastCheck} km &nbsp; <b>Next oil change:</b> ${nextOil} km
+        <b>Status:</b> ${status || '—'} &nbsp; <b>Oil change:</b> ${oilChange}<br>
+        <b>Last kilometers check:</b> ${lastCheck} km &nbsp; <b>Checked:</b> ${checkedDisplay}<br>
+        <b>Next oil change:</b> ${nextOil} km
       </div>
     </a>
   `;
@@ -456,13 +477,11 @@ function render() {
       : '';
 
   } else {
-    const daysH = findHeader(headers, 'days since last oil change');
-
     const withData = [];
     const withoutData = [];
 
     filteredRows.forEach(row => {
-      const days = parseNum(row[daysH]);
+      const days = daysSinceChecked(row, headers);
       if (isNaN(days)) {
         withoutData.push(row);
       } else {
@@ -472,9 +491,9 @@ function render() {
 
     withData.sort((a, b) => b.days - a.days);
 
-    listNote.textContent = 'Longest since last change (most overdue) at top';
+    listNote.textContent = 'Checked longest ago (most overdue) at top';
     listBox.innerHTML = withData.map(item =>
-      cardHtml(item.row, headers, 'days since change', item.days.toLocaleString('en-US'))
+      cardHtml(item.row, headers, 'days since checked', item.days.toLocaleString('en-US'))
     ).join('');
 
     noDataSection.innerHTML = withoutData.length

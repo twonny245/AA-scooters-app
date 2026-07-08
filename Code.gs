@@ -10,6 +10,13 @@ var OPERATION_SHEET_NAME = 'Operation';
 var BIKE_TAX_SHEET_NAME = 'Bike Tax';
 var BIKES_SHEET_NAME = 'bikes';
 
+// The "bikes" sheet has a second, separate table further down tracking
+// expenses per bike per month -- same column layout as the income table
+// at the top (the header row at the very top of the sheet is frozen, so
+// column J still means "July" down here too), just its own list of bike
+// names starting at column A, row 52 onward instead of row 2.
+var BIKES_EXPENSE_SECTION_START_ROW = 52;
+
 // ID of the Drive folder that holds one subfolder per bike, full of that
 // bike's photos. Get this from the folder's URL:
 // https://drive.google.com/drive/folders/THIS_PART_IS_THE_ID
@@ -50,6 +57,12 @@ function doPost(e) {
     }
     if (data.action === 'editIncome') {
       return editIncomeRow(data);
+    }
+    if (data.action === 'deleteExpense') {
+      return deleteExpenseRow(data);
+    }
+    if (data.action === 'deleteIncome') {
+      return deleteIncomeRow(data);
     }
 
     // ---- Customer-intake behavior ----
@@ -133,8 +146,8 @@ function doPost(e) {
 
     // If paid by Wise or Revolut, add the amount into that method's
     // deposit-tracking cell on the current month's sheet (self-locating via
-    // the label in column K), as a running "=X+Y" formula. If the label
-    // can't be verified/found anywhere, nothing is written to column L --
+    // the label in column L), as a running "=X+Y" formula. If the label
+    // can't be verified/found anywhere, nothing is written to column M --
     // instead a warning is logged and returned in the response, rather than
     // silently guessing at the wrong cell.
     var depositWarning = null;
@@ -218,6 +231,18 @@ function buildRentalIncomeText(data, dayCount) {
   return text;
 }
 
+// ---- The reverse of buildRentalIncomeText -- pulls the bike name back out
+// of a rental/extension income description ("forza (300) rent 10 days" ->
+// "forza (300)", "GT black 5 extend 43 days" -> "GT black 5"). Returns ''
+// if the text doesn't look like a rent/extend line at all -- e.g. a
+// manually-typed "Add Income" entry on the Accounts page -- so callers can
+// tell a bike-rental income row apart from unrelated income and skip
+// reconciling anything against the "bikes" sheet for the latter. ----
+function extractBikeNameFromRentalIncomeText(text) {
+  var m = (text || '').toString().trim().match(/^(.*?)\s+(rent|extend)\b/i);
+  return m ? m[1].trim() : '';
+}
+
 // ---- Returns the sheet tab matching the current month's name (e.g.
 // "July"), or null if there isn't one. Shared by anything that logs against
 // the current month's sheet, so the lookup stays in one place. ----
@@ -281,6 +306,17 @@ function appendMonthlyIncomeRow(ss, data, dayCount) {
 // next empty row via column A only, since column D ("expense"/"Tax" labels)
 // can have its own unrelated entries further down. ----
 function appendCashSheetRow(ss, data, dayCount) {
+  appendCashSheetRowText(ss, buildRentalIncomeText(data, dayCount), data.totalPrice);
+}
+
+// ---- Same as appendCashSheetRow above, but takes the income label and
+// amount directly instead of deriving them from a rental's bikeModel/
+// dayCount. Shared by the rental cash logging above and by the Accounts
+// page's manual "Add Income" flow (addIncomeRow below), so both paths hit
+// the exact same sheet-writing logic. Returns the row number it wrote to
+// (or undefined if there's no "cash" tab), so the caller can store it as a
+// link for later edits/deletes to find their way back to this exact row. ----
+function appendCashSheetRowText(ss, incomeText, rawAmount) {
   var DATE_COL = 1;   // A
   var INCOME_COL = 2; // B
   var AMOUNT_COL = 3; // C
@@ -297,10 +333,8 @@ function appendCashSheetRow(ss, data, dayCount) {
   }
   var targetRow = lastFilledRow + 1;
 
-  var incomeText = buildRentalIncomeText(data, dayCount);
-
-  var amountValue = data.totalPrice !== '' && data.totalPrice !== undefined && !isNaN(Number(data.totalPrice))
-    ? Number(data.totalPrice)
+  var amountValue = rawAmount !== '' && rawAmount !== undefined && rawAmount !== null && !isNaN(Number(rawAmount))
+    ? Number(rawAmount)
     : '';
 
   sheet.getRange(targetRow, DATE_COL, 1, 3).setValues([[
@@ -313,11 +347,53 @@ function appendCashSheetRow(ss, data, dayCount) {
     sheet.getRange(lastFilledRow, DATE_COL, 1, 3)
       .copyFormatToRange(sheet, DATE_COL, AMOUNT_COL, targetRow, targetRow);
   }
+  return targetRow;
+}
+
+// ---- Same idea as appendCashSheetRowText above, but for the "cash"
+// sheet's EXPENSE side -- columns E (date), F (description), G (amount),
+// running independently of the income side in A-C (column D is just a
+// manual highlight the user uses for their own bookkeeping, untouched
+// here). Used when a cash expense is added via the Accounts page. Returns
+// the row it wrote to, same reason as appendCashSheetRowText above. ----
+function appendCashExpenseRowText(ss, expenseText, rawAmount) {
+  var DATE_COL = 5;   // E
+  var LABEL_COL = 6;  // F
+  var AMOUNT_COL = 7; // G
+
+  var sheet = ss.getSheetByName('cash');
+  if (!sheet) return; // No "cash" tab -- nothing to log against.
+
+  var maxRow = sheet.getMaxRows();
+  var dateColValues = sheet.getRange(1, DATE_COL, maxRow, 1).getValues();
+  var lastFilledRow = 1; // Assume row 1 is the header row.
+  for (var i = 0; i < dateColValues.length; i++) {
+    var v = dateColValues[i][0];
+    if (v !== '' && v !== null) lastFilledRow = i + 1;
+  }
+  var targetRow = lastFilledRow + 1;
+
+  var amountValue = rawAmount !== '' && rawAmount !== undefined && rawAmount !== null && !isNaN(Number(rawAmount))
+    ? Number(rawAmount)
+    : '';
+
+  sheet.getRange(targetRow, DATE_COL, 1, 3).setValues([[
+    new Date(), expenseText, amountValue
+  ]]);
+
+  // Match the formatting (currency style, borders) of the row directly
+  // above, so the new row looks consistent with the rest.
+  if (lastFilledRow >= 2) {
+    sheet.getRange(lastFilledRow, DATE_COL, 1, 3)
+      .copyFormatToRange(sheet, DATE_COL, AMOUNT_COL, targetRow, targetRow);
+  }
+  return targetRow;
 }
 
 // ---- Adds an amount into one of the fixed deposit-tracking cells on the
-// current month's sheet -- L11 "wise(less deposit)" for Wise, L12
-// "revolut(less deposit)" for Revolut. These are fixed reference cells (not
+// current month's sheet -- M11 (next to the "wise(less deposit)" label in
+// L11) for Wise, M12 (next to "revolut(less deposit)" in L12) for Revolut.
+// These are fixed reference cells (not
 // something that grows with new rental rows), and the goal is to keep a
 // visible running total as a formula, e.g. "=100+300", rather than just
 // silently replacing the number. If the cell is empty, the formula becomes
@@ -406,13 +482,19 @@ function findBikesSheetMonthColumn(sheet, monthName) {
 }
 
 // ---- Finds the row on the "bikes" sheet whose column A bike name
-// fuzzy-matches the given bike name. Returns -1 if no row matches. ----
-function findBikesSheetRow(sheet, bikeName) {
+// fuzzy-matches the given bike name, scanning from startRow (default 2,
+// the income table) down to the sheet's last row. Pass
+// BIKES_EXPENSE_SECTION_START_ROW to search the expense table further
+// down instead -- restricting the scan to start there (rather than
+// scanning the whole column) avoids accidentally matching the SAME bike
+// name's row up in the income table. Returns -1 if no row matches. ----
+function findBikesSheetRow(sheet, bikeName, startRow) {
+  var start = startRow || 2;
   var lastRow = sheet.getLastRow();
-  if (lastRow < 2) return -1;
-  var names = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  if (lastRow < start) return -1;
+  var names = sheet.getRange(start, 1, lastRow - start + 1, 1).getValues();
   for (var i = 0; i < names.length; i++) {
-    if (bikeNamesMatchForRentalLog(names[i][0], bikeName)) return i + 2;
+    if (bikeNamesMatchForRentalLog(names[i][0], bikeName)) return i + start;
   }
   return -1;
 }
@@ -429,9 +511,22 @@ function findBikesSheetRow(sheet, bikeName) {
 // nothing) if the "bikes" sheet, the bike's row, or the month's column
 // can't be found, so a naming mismatch surfaces as a warning instead of
 // quietly skipping the update. ----
-function addRentalAmountToBikesSheet(ss, bikeModel, rawAmount) {
+// monthNameOverride lets a caller working against a specific (possibly
+// past) month sheet -- like editIncomeRow, reconciling an edit made via
+// the Accounts page's month selector -- target that exact month's column
+// instead of always assuming "right now". Defaults to the real current
+// month, which is what a brand-new rental/extension (doPost,
+// extendBikeRow) should always use. rawAmount can be negative -- this is
+// also how an edit's delta gets applied (subtract the old amount, add the
+// new one), same running-formula approach as everywhere else here.
+// sectionStartRowOverride lets a caller target the "bikes" sheet's
+// separate EXPENSE table (BIKES_EXPENSE_SECTION_START_ROW) instead of the
+// default income table (row 2) -- same sheet, same month columns (the
+// header row is frozen/shared), just a different block of bike-name rows
+// further down. ----
+function addRentalAmountToBikesSheet(ss, bikeModel, rawAmount, monthNameOverride, sectionStartRowOverride) {
   var amount = Number(rawAmount);
-  if (rawAmount === '' || rawAmount === null || rawAmount === undefined || isNaN(amount)) return;
+  if (rawAmount === '' || rawAmount === null || rawAmount === undefined || isNaN(amount) || amount === 0) return;
 
   var sheet = ss.getSheetByName(BIKES_SHEET_NAME);
   if (!sheet) {
@@ -443,13 +538,13 @@ function addRentalAmountToBikesSheet(ss, bikeModel, rawAmount) {
     throw new Error('No bike name given -- bike monthly total was NOT updated.');
   }
 
-  var row = findBikesSheetRow(sheet, bikeNameTrimmed);
+  var row = findBikesSheetRow(sheet, bikeNameTrimmed, sectionStartRowOverride);
   if (row === -1) {
     throw new Error('Could not find a row for "' + bikeNameTrimmed + '" on the "' + BIKES_SHEET_NAME +
       '" sheet -- its monthly total was NOT updated.');
   }
 
-  var monthName = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'MMMM'); // e.g. "July"
+  var monthName = monthNameOverride || Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'MMMM'); // e.g. "July"
   var col = findBikesSheetMonthColumn(sheet, monthName);
   if (col === -1) {
     throw new Error('Could not find a "' + monthName + '" column on the "' + BIKES_SHEET_NAME +
@@ -471,11 +566,81 @@ function addRentalAmountToBikesSheet(ss, bikeModel, rawAmount) {
   }
 }
 
+// ---- doGet: action = 'bikesList' -- returns every unique bike name in
+// column A of the "bikes" sheet (income table, expense table, or both --
+// they're expected to list the same bikes, so this just de-duplicates),
+// for the Accounts page's "attach to bike" dropdown when adding/editing an
+// expense. Returns [] rather than throwing if the sheet is missing, so a
+// problem here never breaks the rest of the Accounts page. ----
+// ---- Column A of the "bikes" sheet isn't ONLY bike names -- between the
+// income table and the expense table (and at the end of each) there are
+// label rows like "totals", "expense %", "Expenses" (the expense table's
+// own header, sitting right above its first bike at
+// BIKES_EXPENSE_SECTION_START_ROW), and "total" (closing out the expense
+// table). Flags any of those so getBikesListNames can skip them rather
+// than offering "total" as something to attach an expense to. ----
+function looksLikeBikesSheetLabel(raw) {
+  var t = (raw || '').toString().trim().toLowerCase();
+  if (!t) return true; // blank -- not a bike name either.
+  if (t.indexOf('total') === 0) return true; // "total", "totals"
+  if (t === 'expenses' || t === 'expense' || t.indexOf('expense %') === 0) return true;
+  return false;
+}
+
+function getBikesListNames() {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName(BIKES_SHEET_NAME);
+    if (!sheet) {
+      return ContentService
+        .createTextOutput(JSON.stringify({ success: true, bikes: [] }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    var lastRow = sheet.getLastRow();
+    var bikes = [];
+    if (lastRow >= 2) {
+      var values = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+      var seen = {};
+      for (var i = 0; i < values.length; i++) {
+        var name = (values[i][0] || '').toString().trim();
+        if (!name || looksLikeBikesSheetLabel(name)) continue;
+        var key = name.toLowerCase();
+        if (!seen[key]) {
+          seen[key] = true;
+          bikes.push(name);
+        }
+      }
+    }
+
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: true, bikes: bikes }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: false, error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+// ---- Converts a 1-based column number to its spreadsheet letter (12 ->
+// "L", 13 -> "M", etc.), purely for readable error messages below. ----
+function columnToLetter(col) {
+  var letter = '';
+  while (col > 0) {
+    var rem = (col - 1) % 26;
+    letter = String.fromCharCode(65 + rem) + letter;
+    col = Math.floor((col - 1) / 26);
+  }
+  return letter;
+}
+
 // ---- Finds the row where a given label (e.g. "wise(less deposit)") lives
-// in a label column (column K). Checks the expected row first; if the label
-// there doesn't match (case/whitespace-insensitive), searches the whole
-// column for it instead, in case the sheet's layout shifted. Returns the
-// row number if found, or null if the label isn't anywhere in the column. ----
+// in a label column. Checks the expected row first; if the label there
+// doesn't match (case/whitespace-insensitive), searches the whole column
+// for it instead, in case the sheet's layout shifted vertically. Returns
+// the row number if found, or null if the label isn't anywhere in the
+// column. ----
 function findDepositRow(sheet, expectedRow, labelCol, expectedLabel) {
   function norm(s) { return (s || '').toString().trim().toLowerCase(); }
   var target = norm(expectedLabel);
@@ -491,13 +656,23 @@ function findDepositRow(sheet, expectedRow, labelCol, expectedLabel) {
   return null; // Label not found anywhere in the column.
 }
 
-// ---- Entry point used by doPost for Wise/Revolut payments. Verifies the
-// label in column K actually matches before touching column L, self-heals
-// if the row shifted, and throws a clear error (rather than writing to the
-// wrong cell) if the label can't be found anywhere on the sheet. ----
+// ---- Entry point used by a new rental (doPost), an extension
+// (extendBikeRow), and a manual Accounts income entry (addIncomeRow) alike
+// for Wise/Revolut payments -- all three route through this one function,
+// so fixing/verifying the target cell here fixes it everywhere at once.
+//
+// The label lives in column L ("wise(less deposit)" / "revolut(less
+// deposit)") and the running total lives in column M, directly to its
+// right -- this moved one column over from the previous K/L layout after
+// a column was inserted on the sheet. findDepositRow() self-heals for the
+// label moving to a different ROW, but as a second, independent safety net
+// against the columns themselves shifting again in the future, this also
+// re-checks -- right at the point of writing -- that the cell immediately
+// to the left of the value cell actually still says the expected label. If
+// it doesn't, this throws instead of silently writing into the wrong cell. ----
 function processDepositForPayment(ss, paidByLower, rawAmount) {
-  var LABEL_COL = 11;  // K
-  var VALUE_COL = 12;  // L
+  var LABEL_COL = 12;  // L
+  var VALUE_COL = 13;  // M
 
   var sheet = getCurrentMonthSheet(ss);
   if (!sheet) {
@@ -509,8 +684,20 @@ function processDepositForPayment(ss, paidByLower, rawAmount) {
 
   var row = findDepositRow(sheet, expectedRow, LABEL_COL, expectedLabel);
   if (row === null) {
-    throw new Error('Could not find a "' + expectedLabel + '" row in column K of the "' +
-      sheet.getName() + '" sheet -- the ' + paidByLower + ' deposit total was NOT updated.');
+    throw new Error('Could not find a "' + expectedLabel + '" row in column ' + columnToLetter(LABEL_COL) +
+      ' of the "' + sheet.getName() + '" sheet -- the ' + paidByLower + ' deposit total was NOT updated.');
+  }
+
+  // Safety check: confirm the cell directly to the left of where we're
+  // about to write still says the expected label. This is deliberately
+  // re-derived from VALUE_COL rather than reusing LABEL_COL, so if the two
+  // ever drift apart in a future edit, this still catches it.
+  var neighborCell = sheet.getRange(row, VALUE_COL - 1);
+  var neighborLabel = (neighborCell.getValue() || '').toString().trim().toLowerCase();
+  if (neighborLabel !== expectedLabel) {
+    throw new Error('Safety check failed: ' + sheet.getName() + '!' + columnToLetter(VALUE_COL - 1) + row +
+      ' does not say "' + expectedLabel + '" (found "' + neighborLabel + '" instead) -- the ' +
+      paidByLower + ' deposit total was NOT updated. The column may have moved again.');
   }
 
   addAmountToDepositCell(sheet, row, VALUE_COL, rawAmount);
@@ -518,7 +705,7 @@ function processDepositForPayment(ss, paidByLower, rawAmount) {
 
 // ---- Security deposit tracking (the checkbox/dropdown added to the intake
 // form -- NOT the same thing as processDepositForPayment above, which tracks
-// running Wise/Revolut payment totals in fixed cells L11/L12). This instead
+// running Wise/Revolut payment totals in fixed cells M11/M12). This instead
 // logs each Scan/Wise/Revolut security deposit as its own row in a growing
 // table on the current month's sheet:
 //   Scan    -> N (date), O (amount), P (name)
@@ -1014,6 +1201,9 @@ function doGet(e) {
     if (e.parameter.action === 'accounts') {
       return getAccountsData(e.parameter.month);
     }
+    if (e.parameter.action === 'bikesList') {
+      return getBikesListNames();
+    }
 
     // ---- Customer-search behavior ----
     var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -1214,6 +1404,175 @@ function findMonthSheetFuzzy(ss, fullMonthName) {
   return null;
 }
 
+// ---- Expense classification: each expense entry can be tagged as
+// Business, Personal, Wages/Bike Purchase, or To Transfer. Rather than
+// storing the tag anywhere new, it's represented purely as the background
+// color of the expense description cell (column B) -- Business is the
+// default (no fill), so old, never-classified entries read back as
+// Business automatically with nothing to migrate. ----
+var EXPENSE_TYPE_COLORS = {
+  business: null,       // no fill -- the default, unclassified look
+  personal: '#cfe2f3',  // light blue
+  wages: '#f6b26b',     // orange
+  transfer: '#fff2cc'   // light yellow
+};
+
+// ---- Colors the expense description cell (column B) of the given row to
+// match its classification. Passing an unrecognized/blank type falls back
+// to Business (no fill), so a row is never left with a stray color from a
+// previous classification if the new save doesn't specify one. ----
+function applyExpenseTypeColor(sheet, row, type) {
+  var key = (type || 'business').toString().trim().toLowerCase();
+  var color = EXPENSE_TYPE_COLORS.hasOwnProperty(key) ? EXPENSE_TYPE_COLORS[key] : null;
+  sheet.getRange(row, 2).setBackground(color);
+}
+
+// ---- The reverse of applyExpenseTypeColor -- reads a cell's background
+// color back and maps it to a classification, so getAccountsData can tell
+// the client which type an existing entry already has (to prefill the
+// dropdown on Edit). Anything that isn't one of the three colored types
+// (including plain white/no-fill) reads back as Business. ----
+function expenseTypeFromColor(hex) {
+  var h = (hex || '').toString().trim().toLowerCase();
+  if (h === EXPENSE_TYPE_COLORS.personal) return 'personal';
+  if (h === EXPENSE_TYPE_COLORS.wages) return 'wages';
+  if (h === EXPENSE_TYPE_COLORS.transfer) return 'transfer';
+  return 'business';
+}
+
+// ---- Optional "which bike(s) is this expense split across" link, stored
+// as a cell NOTE on the expense description cell (column B) -- not a new
+// column, and not a stored row-number reference to another sheet either
+// (the design explicitly avoided for cash-linking, since a stale row
+// number can silently point at the wrong thing after a manual edit
+// elsewhere). A note travels with its own cell -- if this row shifts
+// (insert/delete elsewhere on this same sheet), the note moves with it
+// automatically; if the row is deleted, the note simply goes with it.
+//
+// The note holds a JSON array of {bike, amount} pairs -- e.g. a single
+// parts purchase covering several bikes can split ฿1,000 to "GT Black"
+// and ฿1,500 to "GT Red" in one expense entry. Empty/no note means "not
+// attached to any bike", the common case (most expenses aren't
+// bike-specific). For backward compatibility, a note that's just a plain
+// bike name (from before splitting existed) is treated as a single split
+// covering the row's whole amount. ----
+function parseExpenseBikeSplitsNote(note, fallbackAmount) {
+  var trimmed = (note || '').toString().trim();
+  if (!trimmed) return [];
+
+  function cleanAmount(raw) {
+    return (raw === '' || raw === null || raw === undefined || isNaN(Number(raw))) ? '' : Number(raw);
+  }
+
+  if (trimmed.charAt(0) === '[') {
+    try {
+      var parsed = JSON.parse(trimmed);
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .map(function(s) {
+          return { bike: (s && s.bike || '').toString().trim(), amount: cleanAmount(s && s.amount) };
+        })
+        .filter(function(s) { return s.bike && s.amount !== ''; });
+    } catch (e) {
+      return []; // Malformed note -- treat as no link rather than throwing.
+    }
+  }
+
+  // Legacy plain-bike-name note (pre-splitting) -- the row's whole amount
+  // was attributed to that one bike.
+  var fallback = cleanAmount(fallbackAmount);
+  return fallback === '' ? [] : [{ bike: trimmed, amount: fallback }];
+}
+
+function getExpenseBikeSplits(sheet, row, fallbackAmount) {
+  return parseExpenseBikeSplitsNote(sheet.getRange(row, 2).getNote(), fallbackAmount);
+}
+
+function setExpenseBikeSplits(sheet, row, splits) {
+  var clean = (splits || [])
+    .map(function(s) {
+      var bike = (s && s.bike || '').toString().trim();
+      var amt = (s && s.amount !== '' && s.amount !== null && s.amount !== undefined && !isNaN(Number(s.amount)))
+        ? Number(s.amount) : '';
+      return { bike: bike, amount: amt };
+    })
+    .filter(function(s) { return s.bike && s.amount !== ''; });
+  sheet.getRange(row, 2).setNote(clean.length ? JSON.stringify(clean) : '');
+}
+
+// ---- Fixed labeled rows further down each month sheet ("personal
+// expenses total" around row 149, "wages and bike purchase" around row
+// 150) that track a running total of just that type of expense, as a
+// formula chaining together the AMOUNT CELL of every matching expense --
+// e.g. "=C29+C50+C55" -- rather than copying amounts across. Referencing
+// the source cells directly means editing an expense's amount later
+// updates these totals automatically, with nothing to reconcile here.
+// Business expenses aren't broken out this way at all (they only count
+// toward the overall "total expenses" row already on the sheet). ----
+var EXPENSE_TYPE_TOTAL_LABELS = {
+  personal: { row: 149, label: 'personal expenses total' },
+  wages: { row: 150, label: 'wages and bike purchase' }
+};
+
+// ---- Finds the row (in column B) for a Personal/Wages running total,
+// self-healing via findDepositRow (already used for the Wise/Revolut
+// deposit cells) if the row has drifted from its usual spot. Returns null
+// for Business/anything unrecognized, which isn't totalled this way. ----
+function locateExpenseTypeTotalRow(sheet, type) {
+  var def = EXPENSE_TYPE_TOTAL_LABELS[type];
+  if (!def) return null;
+  return findDepositRow(sheet, def.row, 2, def.label);
+}
+
+// ---- Adds (add=true) or removes (add=false) a cell reference like "C29"
+// to/from the running "=C29+C50+..." formula in column C of the Personal/
+// Wages total row. Verifies -- right before writing -- that column B
+// still holds the expected label, same safety net already used before
+// writing the Wise/Revolut deposit totals; throws instead of writing into
+// the wrong cell if it doesn't match. Safe to call repeatedly -- adding an
+// already-present reference, or removing one that's not there, is a
+// no-op. Does nothing for Business/anything unrecognized. ----
+function updateExpenseTypeTotalRef(sheet, type, refRow, add) {
+  var def = EXPENSE_TYPE_TOTAL_LABELS[type];
+  if (!def) return;
+
+  var row = locateExpenseTypeTotalRow(sheet, type);
+  if (row === null) {
+    throw new Error('Could not find the "' + def.label + '" row in column B of "' + sheet.getName() +
+      '" -- the ' + type + ' total was NOT updated.');
+  }
+
+  var actualLabel = (sheet.getRange(row, 2).getValue() || '').toString().trim().toLowerCase();
+  if (actualLabel !== def.label) {
+    throw new Error('Safety check failed: ' + sheet.getName() + '!B' + row + ' does not say "' + def.label +
+      '" (found "' + actualLabel + '" instead) -- the ' + type + ' total was NOT updated. The row may have moved again.');
+  }
+
+  var ref = 'C' + refRow;
+  var cell = sheet.getRange(row, 3);
+  var formula = cell.getFormula();
+  var terms;
+  if (formula && formula.charAt(0) === '=') {
+    terms = formula.slice(1).split('+').map(function(s) { return s.trim(); }).filter(function(s) { return s; });
+  } else {
+    // Not a formula yet -- if a plain number is already sitting there
+    // (manually entered before this feature existed), keep it as the
+    // first term rather than silently discarding it.
+    var currentValue = cell.getValue();
+    terms = (currentValue !== '' && currentValue !== null && !isNaN(Number(currentValue)) && Number(currentValue) !== 0)
+      ? [String(Number(currentValue))]
+      : [];
+  }
+
+  if (add) {
+    if (terms.indexOf(ref) === -1) terms.push(ref);
+  } else {
+    terms = terms.filter(function(t) { return t !== ref; });
+  }
+
+  cell.setFormula(terms.length ? '=' + terms.join('+') : '');
+}
+
 // ---- Shared with getAccountsData, getAccountsFreeRow, and the
 // add/edit-expense/income functions below, so the "where does the real
 // data end and the totals block begin" rule stays identical everywhere
@@ -1293,6 +1652,8 @@ function getAccountsData(monthIndexRaw) {
     var income = [];
     if (lastRow >= 2) {
       var combined = sheet.getRange(2, 1, lastRow - 1, 10).getValues();
+      var expenseColColors = sheet.getRange(2, 2, lastRow - 1, 1).getBackgrounds();
+      var expenseColNotes = sheet.getRange(2, 2, lastRow - 1, 1).getNotes();
       var prevBlank = false;
       for (var idx = 0; idx < combined.length; idx++) {
         var r = combined[idx];
@@ -1324,7 +1685,12 @@ function getAccountsData(monthIndexRaw) {
             date: cellToString(eDate),
             expense: expenseLabel,
             amount: (eAmountEmpty || isNaN(Number(eAmount))) ? '' : Number(eAmount),
-            payment: ePayment
+            payment: ePayment,
+            type: expenseTypeFromColor(expenseColColors[idx] && expenseColColors[idx][0]),
+            bikeSplits: parseExpenseBikeSplitsNote(
+              expenseColNotes[idx] && expenseColNotes[idx][0],
+              (eAmountEmpty || isNaN(Number(eAmount))) ? '' : Number(eAmount)
+            )
           });
         }
         if (incomeLabel || !iAmountEmpty) {
@@ -1376,23 +1742,27 @@ function locateAccountsSheet(monthIndexRaw) {
 }
 
 // ---- Checks whether one side (expense or income) of a given combined
-// row (as returned by the getRange(...,10) reads above) is completely
-// empty -- i.e. safe to write a new entry into without erasing anything
-// already there on that row. ----
+// row (as returned by the getRange(...,10) reads above) is safe to write a
+// new entry into without erasing anything meaningful already there.
+//
+// Only the "content" cells (date/label/name/amount) have to be blank --
+// a leftover value sitting alone in just the payment/paid-by cell (with
+// everything else on that side blank) does NOT count as an occupied row.
+// A stray payment-only cell isn't a real entry, and treating it as
+// "occupied" was leaving permanent gap rows: new entries would skip past
+// it to the next fully-blank row instead of reusing (and overwriting) it. ----
 function isAccountsSideEmpty(r, side) {
   if (side === 'expense') {
     var eDateEmpty = (r[0] === '' || r[0] === null);
     var expenseLabel = (r[1] || '').toString().trim();
     var eAmountEmpty = (r[2] === '' || r[2] === null);
-    var paymentEmpty = !(r[3] || '').toString().trim();
-    return eDateEmpty && !expenseLabel && eAmountEmpty && paymentEmpty;
+    return eDateEmpty && !expenseLabel && eAmountEmpty;
   }
   var iDateEmpty = (r[5] === '' || r[5] === null);
   var incomeLabel = (r[6] || '').toString().trim();
   var nameEmpty = !(r[7] || '').toString().trim();
   var iAmountEmpty = (r[8] === '' || r[8] === null);
-  var paidByEmpty = !(r[9] || '').toString().trim();
-  return iDateEmpty && !incomeLabel && nameEmpty && iAmountEmpty && paidByEmpty;
+  return iDateEmpty && !incomeLabel && nameEmpty && iAmountEmpty;
 }
 
 // ---- Finds a row that's safe to write a brand-new expense OR income
@@ -1409,10 +1779,17 @@ function isAccountsSideEmpty(r, side) {
 // it lands inside the range most SUM()-style total formulas already
 // cover, existing formulas simply expand to include it. If no summary row
 // is found either, the row right after the sheet's last used row is
-// used. ----
+// used.
+//
+// Returns { row, inserted }. inserted is true only for the "row inserted
+// above the totals block" case above -- that's the one situation where
+// EVERY other row on the sheet (both sides) shifts down by one, so the
+// client can't just append its new entry locally; it needs to fall back to
+// a full reload instead of trusting old row numbers it already has
+// cached. ----
 function getAccountsFreeRow(sheet, side) {
   var lastRow = sheet.getLastRow();
-  if (lastRow < 2) return 2;
+  if (lastRow < 2) return { row: 2, inserted: false };
 
   var combined = sheet.getRange(2, 1, lastRow - 1, 10).getValues();
   for (var idx = 0; idx < combined.length; idx++) {
@@ -1423,23 +1800,154 @@ function getAccountsFreeRow(sheet, side) {
     if (looksLikeSummaryLabel(expenseLabel) || looksLikeSummaryLabel(incomeLabel)) {
       var summaryRow = idx + 2;
       sheet.insertRowBefore(summaryRow);
-      return summaryRow;
+      return { row: summaryRow, inserted: true };
     }
 
     if (isAccountsSideEmpty(r, side)) {
-      return idx + 2;
+      return { row: idx + 2, inserted: false };
     }
   }
-  return lastRow + 1;
+  return { row: lastRow + 1, inserted: false };
+}
+
+// =====================================================================
+// Cash-sheet reconciliation for edits/deletes.
+//
+// No stored reference is kept anywhere for this -- an earlier version of
+// this feature stored a row-number link in helper columns (AG/AH) on each
+// month sheet, but that's deliberately been dropped: if someone manually
+// inserts/deletes a row on the "cash" sheet later (entirely possible, since
+// a lot of this data is entered by hand), a stored row number would go
+// stale and could silently point at the wrong entry. Instead, whenever an
+// edit or delete needs to find an entry's matching "cash" sheet row, it's
+// looked up fresh, right then, by matching description + amount. In
+// practice this is unique (a specific bike rented for a specific length
+// starting on a specific date can't happen twice; a specific expense
+// bought for a specific bike on a specific day is much the same). On the
+// rare chance it isn't unique, nothing is guessed at -- the match is
+// handed back to the client as a list of candidates so the user can pick
+// which one, and the request is resubmitted with that exact row. ----
+
+// ---- Searches the "cash" sheet's expense side (E-G) or income side
+// (A-C) for every row whose description + amount match what's given. ----
+function findCashCandidates(ss, side, text, amount) {
+  var sheet = ss.getSheetByName('cash');
+  if (!sheet) return [];
+
+  var dateCol = side === 'expense' ? 5 : 1;
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+
+  var expectedText = (text || '').toString().trim();
+  var expectedAmountNum = (amount === '' || amount === null || amount === undefined || isNaN(Number(amount))) ? null : Number(amount);
+  var tz = ss.getSpreadsheetTimeZone();
+
+  var values = sheet.getRange(2, dateCol, lastRow - 1, 3).getValues(); // [date, label, amount]
+  var candidates = [];
+  for (var i = 0; i < values.length; i++) {
+    var rowLabel = (values[i][1] || '').toString().trim();
+    var rowAmountRaw = values[i][2];
+    var rowAmountNum = (rowAmountRaw === '' || rowAmountRaw === null || isNaN(Number(rowAmountRaw))) ? null : Number(rowAmountRaw);
+    var amountMatches = (rowAmountNum === null && expectedAmountNum === null) ||
+      (rowAmountNum !== null && expectedAmountNum !== null && rowAmountNum === expectedAmountNum);
+
+    if (rowLabel === expectedText && amountMatches) {
+      var rawDate = values[i][0];
+      var dateDisplay = rawDate instanceof Date ? Utilities.formatDate(rawDate, tz, 'dd/MM/yyyy') : (rawDate || '').toString();
+      candidates.push({
+        row: i + 2,
+        date: dateDisplay,
+        text: rowLabel,
+        amount: rowAmountNum === null ? '' : rowAmountNum
+      });
+    }
+  }
+  return candidates;
+}
+
+// ---- Works out which "cash" sheet row to reconcile against:
+//   - If the client already resubmitted with an explicit choice
+//     (data.cashRowChoice, after the user picked from a disambiguation
+//     list), that's used directly.
+//   - Else searches for candidates: zero -> null (not found), one -> that
+//     row, more than one -> returns a special marker so the caller can
+//     bail out and ask the user to choose, before anything is written. ----
+function resolveCashRow(ss, side, cashRowChoice, text, amount) {
+  if (cashRowChoice) return { row: Math.round(Number(cashRowChoice)) };
+
+  var candidates = findCashCandidates(ss, side, text, amount);
+  if (candidates.length === 0) return { row: null };
+  if (candidates.length === 1) return { row: candidates[0].row };
+  return { needsDisambiguation: true, candidates: candidates };
+}
+
+// ---- Confirms a "cash" sheet row still holds what we expect (description
+// + amount) right before it's touched -- cheap last-moment insurance in
+// case something changed between the lookup above and this write. ----
+function cashRowStillMatches(cashSheet, cashRow, labelCol, amountCol, expectedText, expectedAmount) {
+  if (!cashRow || cashRow < 2) return false;
+  var actualText = (cashSheet.getRange(cashRow, labelCol).getValue() || '').toString().trim();
+  var actualAmountRaw = cashSheet.getRange(cashRow, amountCol).getValue();
+  var expectedAmountNum = (expectedAmount === '' || expectedAmount === null || expectedAmount === undefined) ? null : Number(expectedAmount);
+  var actualAmountNum = (actualAmountRaw === '' || actualAmountRaw === null) ? null : Number(actualAmountRaw);
+  var amountMatches = (actualAmountNum === null && expectedAmountNum === null) ||
+    (actualAmountNum !== null && expectedAmountNum !== null && actualAmountNum === expectedAmountNum);
+  return actualText === (expectedText || '').toString().trim() && amountMatches;
+}
+
+// ---- Deletes a "cash" sheet row's 3 cells (date/description/amount) and
+// shifts everything below it, in just those 3 columns, up by one -- same
+// "delete cells, shift up" scoping as deleteExpenseRow/deleteIncomeRow
+// below use on the month sheet itself. side is 'expense' (cash sheet
+// columns E-G) or 'income' (columns A-C). ----
+function deleteCashRow(ss, cashRow, side, expectedText, expectedAmount) {
+  var sheet = ss.getSheetByName('cash');
+  if (!sheet) throw new Error('"cash" sheet not found.');
+  var dateCol = side === 'expense' ? 5 : 1;
+  var labelCol = side === 'expense' ? 6 : 2;
+  var amountCol = side === 'expense' ? 7 : 3;
+
+  if (!cashRowStillMatches(sheet, cashRow, labelCol, amountCol, expectedText, expectedAmount)) {
+    throw new Error('Could not confirm "cash" sheet row ' + cashRow + ' still matches this entry -- it was NOT removed. Please check/remove it manually if needed.');
+  }
+  sheet.getRange(cashRow, dateCol, 1, 3).deleteCells(SpreadsheetApp.Dimension.ROWS);
+}
+
+// ---- Updates a "cash" sheet row's description + amount in place (no
+// shifting -- this is an edit, not a delete). ----
+function updateCashRow(ss, cashRow, side, expectedOldText, expectedOldAmount, newText, newAmount) {
+  var sheet = ss.getSheetByName('cash');
+  if (!sheet) throw new Error('"cash" sheet not found.');
+  var labelCol = side === 'expense' ? 6 : 2;
+  var amountCol = side === 'expense' ? 7 : 3;
+
+  if (!cashRowStillMatches(sheet, cashRow, labelCol, amountCol, expectedOldText, expectedOldAmount)) {
+    throw new Error('Could not confirm "cash" sheet row ' + cashRow + ' still matches this entry -- it was NOT updated. Please check/update it manually if needed.');
+  }
+  sheet.getRange(cashRow, labelCol).setValue(newText);
+  var amountValue = (newAmount === '' || newAmount === undefined || newAmount === null || isNaN(Number(newAmount))) ? '' : Number(newAmount);
+  sheet.getRange(cashRow, amountCol).setValue(amountValue);
 }
 
 // ---- action:'addExpense' -- data: { monthIndex, date (yyyy-MM-dd),
 // expense, amount, payment }. Writes into a fresh row's A/B/C/D columns
-// only, leaving whatever is in that row's income columns (F-J) untouched. ----
+// only, leaving whatever is in that row's income columns (F-J) untouched.
+//
+// Then, exactly like a manual income entry does in addIncomeRow below,
+// routes based on payment:
+//   Cash -> also logged as its own row on the "cash" sheet's expense side
+//           (columns E-G).
+//   Bank (or anything else) -> nothing further -- Bank is the expense-side
+//           equivalent of Scan on the income side; the A-D row is enough.
+// Wrapped so a problem there never rolls back the expense row itself,
+// which is already saved by this point -- any issue comes back as a
+// non-fatal "warning" instead. ----
 function addExpenseRow(data) {
   try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheet = locateAccountsSheet(data.monthIndex);
-    var row = getAccountsFreeRow(sheet, 'expense');
+    var freeRow = getAccountsFreeRow(sheet, 'expense');
+    var row = freeRow.row;
     sheet.getRange(row, 1).setValue(formatIsoDateToDMY(data.date) || '');
     sheet.getRange(row, 2).setValue(data.expense || '');
     sheet.getRange(row, 3).setValue(
@@ -1447,8 +1955,58 @@ function addExpenseRow(data) {
         ? '' : Number(data.amount)
     );
     sheet.getRange(row, 4).setValue(data.payment || '');
+    applyExpenseTypeColor(sheet, row, data.expenseType);
+    var expenseBikeSplits = Array.isArray(data.expenseBikeSplits) ? data.expenseBikeSplits : [];
+    setExpenseBikeSplits(sheet, row, expenseBikeSplits);
+
+    var warnings = [];
+    var paymentLower = (data.payment || '').toString().trim().toLowerCase();
+    var expenseTypeKey = (data.expenseType || 'business').toString().trim().toLowerCase();
+
+    try {
+      if (paymentLower === 'cash') {
+        appendCashExpenseRowText(ss, data.expense || '', data.amount);
+      }
+    } catch (cashErr) {
+      warnings.push('Cash sheet: ' + cashErr.message);
+    }
+
+    try {
+      if (expenseTypeKey === 'personal' || expenseTypeKey === 'wages') {
+        updateExpenseTypeTotalRef(sheet, expenseTypeKey, row, true);
+      }
+    } catch (typeErr) {
+      warnings.push('Expense type total: ' + typeErr.message);
+    }
+
+    // If this expense is split across one or more bikes, add each split's
+    // amount into that bike's cell in the "bikes" sheet's EXPENSE table
+    // (starting at BIKES_EXPENSE_SECTION_START_ROW), for this accounts
+    // sheet's own month -- same running-formula approach as the income
+    // side. Each split is wrapped independently so one bad bike name
+    // doesn't stop the rest from being applied.
+    var bikeWarnings = [];
+    expenseBikeSplits.forEach(function(s) {
+      var bike = (s && s.bike || '').toString().trim();
+      var amt = Number(s && s.amount);
+      if (!bike || s.amount === '' || isNaN(amt)) return;
+      try {
+        addRentalAmountToBikesSheet(ss, bike, amt, sheet.getName(), BIKES_EXPENSE_SECTION_START_ROW);
+      } catch (bikeErr) {
+        bikeWarnings.push(bikeErr.message);
+      }
+    });
+    if (bikeWarnings.length) warnings.push('Bikes sheet (expense): ' + bikeWarnings.join(' '));
+
+    // shifted: true only in the rare case a row had to be inserted above
+    // the totals block, which pushes every other row on the sheet down by
+    // one -- the client can't safely trust cached row numbers after that,
+    // so it should do a full reload instead of a local-only update.
+    var responsePayload = { success: true, row: row, shifted: freeRow.inserted };
+    if (warnings.length) responsePayload.warning = warnings.join(' ');
+
     return ContentService
-      .createTextOutput(JSON.stringify({ success: true, row: row }))
+      .createTextOutput(JSON.stringify(responsePayload))
       .setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return ContentService
@@ -1458,22 +2016,151 @@ function addExpenseRow(data) {
 }
 
 // ---- action:'editExpense' -- data: { monthIndex, row, date, expense,
-// amount, payment }. Overwrites A/B/C/D on the given (already-existing)
-// row only. ----
+// amount, payment, cashRowChoice (optional) }. Overwrites A/B/C/D on the
+// given (already-existing) row only.
+//
+// Snapshots the OLD description/amount/payment BEFORE writing anything, so
+// the payment routing can be reconciled against the NEW values:
+//   Cash -> Cash (amount or description changed) -- updates the matching
+//           "cash" row in place.
+//   Cash -> Bank -- removes the matching "cash" row.
+//   Bank -> Cash -- adds a brand-new "cash" row.
+//   Bank -> Bank -- nothing to reconcile.
+// The old "cash" row (when needed) is looked up fresh by matching
+// description + amount via resolveCashRow() -- see the comment above that
+// section for why there's no stored reference. If that search finds more
+// than one candidate, NOTHING is written yet -- this returns
+// needsDisambiguation + the candidate list so the client can ask the user
+// which one, then resubmit with cashRowChoice set. Every reconciliation
+// step is wrapped so a problem there never rolls back the expense edit
+// itself, which is already saved by this point. ----
 function editExpenseRow(data) {
   try {
     if (!data.row || isNaN(Number(data.row))) throw new Error('Missing row number to edit.');
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheet = locateAccountsSheet(data.monthIndex);
     var row = Math.round(Number(data.row));
+
+    var oldExpense = (sheet.getRange(row, 2).getValue() || '').toString().trim();
+    var oldAmountRaw = sheet.getRange(row, 3).getValue();
+    var oldAmount = (oldAmountRaw === '' || oldAmountRaw === null || isNaN(Number(oldAmountRaw))) ? '' : Number(oldAmountRaw);
+    var oldPaymentLower = (sheet.getRange(row, 4).getValue() || '').toString().trim().toLowerCase();
+    var oldTypeKey = expenseTypeFromColor(sheet.getRange(row, 2).getBackground());
+    var oldBikeSplits = getExpenseBikeSplits(sheet, row, oldAmount);
+
+    var newAmount = (data.amount === '' || data.amount === undefined || data.amount === null || isNaN(Number(data.amount)))
+      ? '' : Number(data.amount);
+    var newPaymentLower = (data.payment || '').toString().trim().toLowerCase();
+    var newExpenseText = (data.expense || '').toString().trim();
+    var newBikeSplits = Array.isArray(data.expenseBikeSplits) ? data.expenseBikeSplits : [];
+
+    var wasCash = oldPaymentLower === 'cash';
+    var isCash = newPaymentLower === 'cash';
+
+    // Phase 1: resolve which "cash" row (if any) needs to be updated/
+    // removed, BEFORE touching this sheet -- so an ambiguous match can
+    // bail out cleanly with nothing written.
+    var resolvedOldCashRow = null;
+    if (wasCash) {
+      var resolution = resolveCashRow(ss, 'expense', data.cashRowChoice, oldExpense, oldAmount);
+      if (resolution.needsDisambiguation) {
+        return ContentService
+          .createTextOutput(JSON.stringify({
+            success: false,
+            needsDisambiguation: true,
+            candidates: resolution.candidates
+          }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      resolvedOldCashRow = resolution.row;
+    }
+
+    // Phase 2: apply the edit now that reconciliation is resolved.
     sheet.getRange(row, 1).setValue(formatIsoDateToDMY(data.date) || '');
     sheet.getRange(row, 2).setValue(data.expense || '');
-    sheet.getRange(row, 3).setValue(
-      (data.amount === '' || data.amount === undefined || data.amount === null || isNaN(Number(data.amount)))
-        ? '' : Number(data.amount)
-    );
+    sheet.getRange(row, 3).setValue(newAmount);
     sheet.getRange(row, 4).setValue(data.payment || '');
+    applyExpenseTypeColor(sheet, row, data.expenseType);
+    setExpenseBikeSplits(sheet, row, newBikeSplits);
+    var newTypeKey = (data.expenseType || 'business').toString().trim().toLowerCase();
+
+    var warnings = [];
+
+    // Reconcile the "bikes" sheet expense table -- subtract each OLD split
+    // from whichever bike it was attached to, then add each NEW split to
+    // whichever bike it's attached to now. Same bike, amount-only change
+    // -> nets out to the delta on that one cell. Different bike (fixing a
+    // misattributed expense) -> comes off the old bike's cell and goes
+    // onto the new one's. A bike dropped from the split, or a new one
+    // added, is naturally handled too, since old and new are reconciled
+    // independently. Each split is wrapped on its own so one bad bike
+    // name doesn't stop the rest from being reconciled.
+    var oldBikeWarnings = [];
+    oldBikeSplits.forEach(function(s) {
+      try {
+        addRentalAmountToBikesSheet(ss, s.bike, -s.amount, sheet.getName(), BIKES_EXPENSE_SECTION_START_ROW);
+      } catch (e) {
+        oldBikeWarnings.push(e.message);
+      }
+    });
+    if (oldBikeWarnings.length) warnings.push('Bikes sheet (removing old expense): ' + oldBikeWarnings.join(' '));
+
+    var newBikeWarnings = [];
+    newBikeSplits.forEach(function(s) {
+      var bike = (s && s.bike || '').toString().trim();
+      var amt = Number(s && s.amount);
+      if (!bike || s.amount === '' || isNaN(amt)) return;
+      try {
+        addRentalAmountToBikesSheet(ss, bike, amt, sheet.getName(), BIKES_EXPENSE_SECTION_START_ROW);
+      } catch (e) {
+        newBikeWarnings.push(e.message);
+      }
+    });
+    if (newBikeWarnings.length) warnings.push('Bikes sheet (adding new expense): ' + newBikeWarnings.join(' '));
+
+    // Reconcile the Personal/Wages running totals if the classification
+    // changed -- an amount-only change needs nothing here, since the
+    // total formula references this row's amount cell directly and picks
+    // up the new value on its own.
+    if (oldTypeKey !== newTypeKey) {
+      try {
+        if (oldTypeKey === 'personal' || oldTypeKey === 'wages') {
+          updateExpenseTypeTotalRef(sheet, oldTypeKey, row, false);
+        }
+        if (newTypeKey === 'personal' || newTypeKey === 'wages') {
+          updateExpenseTypeTotalRef(sheet, newTypeKey, row, true);
+        }
+      } catch (typeErr) {
+        warnings.push('Expense type total: ' + typeErr.message);
+      }
+    }
+
+    try {
+      if (wasCash && isCash) {
+        if (resolvedOldCashRow) {
+          updateCashRow(ss, resolvedOldCashRow, 'expense', oldExpense, oldAmount, newExpenseText, newAmount);
+        } else {
+          appendCashExpenseRowText(ss, newExpenseText, newAmount);
+          warnings.push('Could not find a matching "cash" sheet row for this entry -- a NEW cash row was added for the updated amount instead. Please check the "cash" sheet for a possible duplicate.');
+        }
+      } else if (wasCash && !isCash) {
+        if (resolvedOldCashRow) {
+          deleteCashRow(ss, resolvedOldCashRow, 'expense', oldExpense, oldAmount);
+        } else {
+          warnings.push('Could not find a matching "cash" sheet row for this entry -- if it logged one, please remove it manually.');
+        }
+      } else if (!wasCash && isCash) {
+        appendCashExpenseRowText(ss, newExpenseText, newAmount);
+      }
+    } catch (cashErr) {
+      warnings.push('Cash sheet: ' + cashErr.message);
+    }
+
+    var responsePayload = { success: true, row: row };
+    if (warnings.length) responsePayload.warning = warnings.join(' ');
+
     return ContentService
-      .createTextOutput(JSON.stringify({ success: true, row: row }))
+      .createTextOutput(JSON.stringify(responsePayload))
       .setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return ContentService
@@ -1482,13 +2169,34 @@ function editExpenseRow(data) {
   }
 }
 
+// ---- Builds the text logged on the "cash" sheet for a manual Accounts
+// income entry -- there's no bikeModel/dayCount to build off of here (that's
+// only for rental income). Matches the rental cash-row shape exactly: just
+// date + description + amount, no name column, since the "cash" sheet only
+// has three columns (A date, B description, C amount). ----
+function buildGeneralIncomeText(data) {
+  return (data.income || '').toString().trim();
+}
+
 // ---- action:'addIncome' -- data: { monthIndex, date, income, name,
 // amount, paidBy }. Writes into a fresh row's F/G/H/I/J columns only,
-// leaving whatever is in that row's expense columns (A-D) untouched. ----
+// leaving whatever is in that row's expense columns (A-D) untouched.
+//
+// Then, exactly like a new customer rental (or an extension) does in
+// doPost/extendBikeRow above, routes the payment based on paidBy:
+//   Cash    -> also logged as its own row on the "cash" sheet.
+//   Wise    -> added into the running Wise deposit total (M11).
+//   Revolut -> added into the running Revolut deposit total (M12).
+//   Scan (or anything else) -> nothing further; the F-J row is enough.
+// Each routing step is wrapped so a problem there never rolls back the
+// income row itself, which is already saved by this point -- any issue is
+// returned as a non-fatal "warning" instead. ----
 function addIncomeRow(data) {
   try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheet = locateAccountsSheet(data.monthIndex);
-    var row = getAccountsFreeRow(sheet, 'income');
+    var freeRow = getAccountsFreeRow(sheet, 'income');
+    var row = freeRow.row;
     sheet.getRange(row, 6).setValue(formatIsoDateToDMY(data.date) || '');
     sheet.getRange(row, 7).setValue(data.income || '');
     sheet.getRange(row, 8).setValue(data.name || '');
@@ -1497,8 +2205,33 @@ function addIncomeRow(data) {
         ? '' : Number(data.amount)
     );
     sheet.getRange(row, 10).setValue(data.paidBy || '');
+
+    var warnings = [];
+    var paidByLower = (data.paidBy || '').toString().trim().toLowerCase();
+
+    try {
+      if (paidByLower === 'cash') {
+        appendCashSheetRowText(ss, buildGeneralIncomeText(data), data.amount);
+      }
+    } catch (cashErr) {
+      warnings.push('Cash sheet: ' + cashErr.message);
+    }
+
+    try {
+      if (paidByLower === 'wise' || paidByLower === 'revolut') {
+        processDepositForPayment(ss, paidByLower, data.amount);
+      }
+    } catch (depositErr) {
+      warnings.push('Deposit total: ' + depositErr.message);
+    }
+
+    // shifted: true only in the rare case a row had to be inserted above
+    // the totals block -- see addExpenseRow's comment on the same field.
+    var responsePayload = { success: true, row: row, shifted: freeRow.inserted };
+    if (warnings.length) responsePayload.warning = warnings.join(' ');
+
     return ContentService
-      .createTextOutput(JSON.stringify({ success: true, row: row }))
+      .createTextOutput(JSON.stringify(responsePayload))
       .setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return ContentService
@@ -1508,23 +2241,339 @@ function addIncomeRow(data) {
 }
 
 // ---- action:'editIncome' -- data: { monthIndex, row, date, income, name,
-// amount, paidBy }. Overwrites F/G/H/I/J on the given (already-existing)
-// row only. ----
+// amount, paidBy, cashRowChoice (optional) }. Overwrites F/G/H/I/J on the
+// given (already-existing) row only.
+//
+// Snapshots the OLD income text/amount/paidBy BEFORE writing anything, so
+// both the "cash" sheet and the Wise/Revolut running totals can be
+// reconciled against the NEW values:
+//   Cash -> Cash (amount or description changed) -- updates the matching
+//           "cash" row in place.
+//   Cash -> something else -- removes the matching "cash" row.
+//   something else -> Cash -- adds a brand-new "cash" row.
+//   Wise/Revolut involved (before and/or after) -- subtracts the OLD amount
+//           from whichever method it used to be under, then adds the NEW
+//           amount to whichever method it's under now (same method, a
+//           different one, or none -- each half only fires if relevant, so
+//           this naturally covers an amount-only change too).
+// The old "cash" row (when needed) is looked up fresh by matching
+// description + amount via resolveCashRow() -- see the comment above that
+// section for why there's no stored reference. If that search finds more
+// than one candidate, NOTHING is written yet -- this returns
+// needsDisambiguation + the candidate list so the client can ask the user
+// which one, then resubmit with cashRowChoice set. Every reconciliation
+// step is wrapped so a problem there never rolls back the income edit
+// itself, which is already saved by this point. ----
 function editIncomeRow(data) {
   try {
     if (!data.row || isNaN(Number(data.row))) throw new Error('Missing row number to edit.');
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheet = locateAccountsSheet(data.monthIndex);
     var row = Math.round(Number(data.row));
+
+    var oldIncome = (sheet.getRange(row, 7).getValue() || '').toString().trim();
+    var oldAmountRaw = sheet.getRange(row, 9).getValue();
+    var oldAmount = (oldAmountRaw === '' || oldAmountRaw === null || isNaN(Number(oldAmountRaw))) ? '' : Number(oldAmountRaw);
+    var oldPaidByLower = (sheet.getRange(row, 10).getValue() || '').toString().trim().toLowerCase();
+    var oldGeneralText = buildGeneralIncomeText({ income: oldIncome });
+
+    var newAmount = (data.amount === '' || data.amount === undefined || data.amount === null || isNaN(Number(data.amount)))
+      ? '' : Number(data.amount);
+    var newPaidByLower = (data.paidBy || '').toString().trim().toLowerCase();
+    var newGeneralText = buildGeneralIncomeText(data);
+
+    var wasCash = oldPaidByLower === 'cash';
+    var isCash = newPaidByLower === 'cash';
+
+    // Phase 1: resolve which "cash" row (if any) needs to be updated/
+    // removed, BEFORE touching this sheet -- so an ambiguous match can
+    // bail out cleanly with nothing written.
+    var resolvedOldCashRow = null;
+    if (wasCash) {
+      var resolution = resolveCashRow(ss, 'income', data.cashRowChoice, oldGeneralText, oldAmount);
+      if (resolution.needsDisambiguation) {
+        return ContentService
+          .createTextOutput(JSON.stringify({
+            success: false,
+            needsDisambiguation: true,
+            candidates: resolution.candidates
+          }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      resolvedOldCashRow = resolution.row;
+    }
+
+    // Phase 2: apply the edit now that reconciliation is resolved.
     sheet.getRange(row, 6).setValue(formatIsoDateToDMY(data.date) || '');
     sheet.getRange(row, 7).setValue(data.income || '');
     sheet.getRange(row, 8).setValue(data.name || '');
-    sheet.getRange(row, 9).setValue(
-      (data.amount === '' || data.amount === undefined || data.amount === null || isNaN(Number(data.amount)))
-        ? '' : Number(data.amount)
-    );
+    sheet.getRange(row, 9).setValue(newAmount);
     sheet.getRange(row, 10).setValue(data.paidBy || '');
+
+    var warnings = [];
+
+    // ---- Cash reconciliation ----
+    try {
+      if (wasCash && isCash) {
+        if (resolvedOldCashRow) {
+          updateCashRow(ss, resolvedOldCashRow, 'income', oldGeneralText, oldAmount, newGeneralText, newAmount);
+        } else {
+          appendCashSheetRowText(ss, newGeneralText, newAmount);
+          warnings.push('Could not find a matching "cash" sheet row for this entry -- a NEW cash row was added for the updated amount instead. Please check the "cash" sheet for a possible duplicate.');
+        }
+      } else if (wasCash && !isCash) {
+        if (resolvedOldCashRow) {
+          deleteCashRow(ss, resolvedOldCashRow, 'income', oldGeneralText, oldAmount);
+        } else {
+          warnings.push('Could not find a matching "cash" sheet row for this entry -- if it logged one, please remove it manually.');
+        }
+      } else if (!wasCash && isCash) {
+        appendCashSheetRowText(ss, newGeneralText, newAmount);
+      }
+    } catch (cashErr) {
+      warnings.push('Cash sheet: ' + cashErr.message);
+    }
+
+    // ---- Wise/Revolut reconciliation ----
+    try {
+      if (oldPaidByLower === 'wise' || oldPaidByLower === 'revolut') {
+        processDepositForPayment(ss, oldPaidByLower, -(oldAmount === '' ? 0 : oldAmount));
+      }
+    } catch (revertErr) {
+      warnings.push('Deposit total (removing old amount): ' + revertErr.message);
+    }
+    try {
+      if (newPaidByLower === 'wise' || newPaidByLower === 'revolut') {
+        processDepositForPayment(ss, newPaidByLower, (newAmount === '' ? 0 : newAmount));
+      }
+    } catch (applyErr) {
+      warnings.push('Deposit total (adding new amount): ' + applyErr.message);
+    }
+
+    // ---- "bikes" sheet reconciliation ----
+    // If this income row is a bike rental/extension line (built by
+    // buildRentalIncomeText when the booking was first created on the
+    // customer page), that bike also has a running per-month total on the
+    // "bikes" sheet -- same subtract-old/add-new treatment as the
+    // Wise/Revolut totals just above, using this accounts sheet's OWN
+    // month (not necessarily today's real month, since a past month can
+    // be edited via the Accounts page's month selector). A manually-typed
+    // "Add Income" entry that doesn't look like a rental line is left
+    // alone entirely -- there's nothing on the "bikes" sheet to reconcile.
+    var accountsMonthName = sheet.getName();
+    try {
+      var oldBikeName = extractBikeNameFromRentalIncomeText(oldIncome);
+      if (oldBikeName && oldAmount !== '') {
+        addRentalAmountToBikesSheet(ss, oldBikeName, -oldAmount, accountsMonthName);
+      }
+    } catch (bikeRevertErr) {
+      warnings.push('Bikes sheet (removing old amount): ' + bikeRevertErr.message);
+    }
+    try {
+      var newBikeName = extractBikeNameFromRentalIncomeText(data.income);
+      if (newBikeName && newAmount !== '') {
+        addRentalAmountToBikesSheet(ss, newBikeName, newAmount, accountsMonthName);
+      }
+    } catch (bikeApplyErr) {
+      warnings.push('Bikes sheet (adding new amount): ' + bikeApplyErr.message);
+    }
+
+    var responsePayload = { success: true, row: row };
+    if (warnings.length) responsePayload.warning = warnings.join(' ');
+
     return ContentService
-      .createTextOutput(JSON.stringify({ success: true, row: row }))
+      .createTextOutput(JSON.stringify(responsePayload))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: false, error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+// ---- action:'deleteExpense' -- data: { monthIndex, row, cashRowChoice
+// (optional) }. Reverses whatever the entry originally logged (a "cash"
+// sheet row, if it was paid in cash), then deletes just the A-D cells for
+// this row and shifts everything below -- in those columns only -- up by
+// one. The income side (F-J) of this same physical row, if any, is left
+// completely untouched.
+//
+// If payment was Cash, the matching "cash" row is looked up fresh by
+// description + amount via resolveCashRow(). If that finds more than one
+// candidate, NOTHING is deleted yet -- this returns needsDisambiguation +
+// the candidates so the client can ask the user which one, then resubmit
+// with cashRowChoice set. ----
+function deleteExpenseRow(data) {
+  try {
+    if (!data.row || isNaN(Number(data.row))) throw new Error('Missing row number to delete.');
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = locateAccountsSheet(data.monthIndex);
+    var row = Math.round(Number(data.row));
+
+    var expense = (sheet.getRange(row, 2).getValue() || '').toString().trim();
+    var amountRaw = sheet.getRange(row, 3).getValue();
+    var amount = (amountRaw === '' || amountRaw === null || isNaN(Number(amountRaw))) ? '' : Number(amountRaw);
+    var paymentLower = (sheet.getRange(row, 4).getValue() || '').toString().trim().toLowerCase();
+    var typeKey = expenseTypeFromColor(sheet.getRange(row, 2).getBackground());
+    var expenseBikeSplits = getExpenseBikeSplits(sheet, row, amount);
+
+    var resolvedCashRow = null;
+    if (paymentLower === 'cash') {
+      var resolution = resolveCashRow(ss, 'expense', data.cashRowChoice, expense, amount);
+      if (resolution.needsDisambiguation) {
+        return ContentService
+          .createTextOutput(JSON.stringify({
+            success: false,
+            needsDisambiguation: true,
+            candidates: resolution.candidates
+          }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      resolvedCashRow = resolution.row;
+    }
+
+    var warnings = [];
+
+    try {
+      if (paymentLower === 'cash') {
+        if (resolvedCashRow) {
+          deleteCashRow(ss, resolvedCashRow, 'expense', expense, amount);
+        } else {
+          warnings.push('Could not find a matching "cash" sheet row for this entry -- if it logged one, please remove it manually.');
+        }
+      }
+    } catch (cashErr) {
+      warnings.push('Cash sheet: ' + cashErr.message);
+    }
+
+    // Remove this row's reference from the Personal/Wages running total
+    // BEFORE the row's cells are deleted below -- once deleteCells shifts
+    // everything up, "row" no longer belongs to this entry, so the
+    // reference has to come out first while it's still correct.
+    try {
+      if (typeKey === 'personal' || typeKey === 'wages') {
+        updateExpenseTypeTotalRef(sheet, typeKey, row, false);
+      }
+    } catch (typeErr) {
+      warnings.push('Expense type total: ' + typeErr.message);
+    }
+
+    // Same reason -- if this expense was split across one or more bikes,
+    // remove each split's contribution from that bike's cell in the
+    // "bikes" sheet's expense table before the row's cells (and the note
+    // carrying this link) are deleted below.
+    var deleteBikeWarnings = [];
+    expenseBikeSplits.forEach(function(s) {
+      try {
+        addRentalAmountToBikesSheet(ss, s.bike, -s.amount, sheet.getName(), BIKES_EXPENSE_SECTION_START_ROW);
+      } catch (e) {
+        deleteBikeWarnings.push(e.message);
+      }
+    });
+    if (deleteBikeWarnings.length) warnings.push('Bikes sheet (expense): ' + deleteBikeWarnings.join(' '));
+
+    // Delete just A:D for this row, shifting everything below -- in those
+    // columns only -- up. The income side (F-J) of this same row, if any,
+    // is left completely alone.
+    sheet.getRange(row, 1, 1, 4).deleteCells(SpreadsheetApp.Dimension.ROWS);
+
+    var responsePayload = { success: true };
+    if (warnings.length) responsePayload.warning = warnings.join(' ');
+
+    return ContentService
+      .createTextOutput(JSON.stringify(responsePayload))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: false, error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+// ---- action:'deleteIncome' -- data: { monthIndex, row, cashRowChoice
+// (optional) }. Reverses whatever the entry originally did (a "cash" sheet
+// row if paid in cash, or the running Wise/Revolut deposit total if paid
+// that way), then deletes just the F-J cells for this row and shifts
+// everything below -- in those columns only -- up by one. The expense side
+// (A-D) of this same physical row, if any, is left completely untouched.
+//
+// If payment was Cash, the matching "cash" row is looked up fresh by
+// description + amount via resolveCashRow(). If that finds more than one
+// candidate, NOTHING is deleted yet -- this returns needsDisambiguation +
+// the candidates so the client can ask the user which one, then resubmit
+// with cashRowChoice set. ----
+function deleteIncomeRow(data) {
+  try {
+    if (!data.row || isNaN(Number(data.row))) throw new Error('Missing row number to delete.');
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = locateAccountsSheet(data.monthIndex);
+    var row = Math.round(Number(data.row));
+
+    var income = (sheet.getRange(row, 7).getValue() || '').toString().trim();
+    var amountRaw = sheet.getRange(row, 9).getValue();
+    var amount = (amountRaw === '' || amountRaw === null || isNaN(Number(amountRaw))) ? '' : Number(amountRaw);
+    var paidByLower = (sheet.getRange(row, 10).getValue() || '').toString().trim().toLowerCase();
+
+    var resolvedCashRow = null;
+    if (paidByLower === 'cash') {
+      var resolution = resolveCashRow(ss, 'income', data.cashRowChoice, income, amount);
+      if (resolution.needsDisambiguation) {
+        return ContentService
+          .createTextOutput(JSON.stringify({
+            success: false,
+            needsDisambiguation: true,
+            candidates: resolution.candidates
+          }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      resolvedCashRow = resolution.row;
+    }
+
+    var warnings = [];
+
+    try {
+      if (paidByLower === 'cash') {
+        if (resolvedCashRow) {
+          deleteCashRow(ss, resolvedCashRow, 'income', income, amount);
+        } else {
+          warnings.push('Could not find a matching "cash" sheet row for this entry -- if it logged one, please remove it manually.');
+        }
+      }
+    } catch (cashErr) {
+      warnings.push('Cash sheet: ' + cashErr.message);
+    }
+
+    try {
+      if (paidByLower === 'wise' || paidByLower === 'revolut') {
+        processDepositForPayment(ss, paidByLower, -(amount === '' ? 0 : amount));
+      }
+    } catch (depositErr) {
+      warnings.push('Deposit total: ' + depositErr.message);
+    }
+
+    // If this was a bike rental/extension line, reverse its contribution
+    // to that bike's running per-month total on the "bikes" sheet too --
+    // same reasoning as editIncomeRow's reconciliation above (this
+    // accounts sheet's own month, not necessarily today's real month).
+    try {
+      var deletedBikeName = extractBikeNameFromRentalIncomeText(income);
+      if (deletedBikeName && amount !== '') {
+        addRentalAmountToBikesSheet(ss, deletedBikeName, -amount, sheet.getName());
+      }
+    } catch (bikeErr) {
+      warnings.push('Bikes sheet: ' + bikeErr.message);
+    }
+
+    // Delete just F:J for this row, shifting everything below -- in those
+    // columns only -- up. The expense side (A-D) of this same row, if any,
+    // is left completely alone.
+    sheet.getRange(row, 6, 1, 5).deleteCells(SpreadsheetApp.Dimension.ROWS);
+
+    var responsePayload = { success: true };
+    if (warnings.length) responsePayload.warning = warnings.join(' ');
+
+    return ContentService
+      .createTextOutput(JSON.stringify(responsePayload))
       .setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return ContentService

@@ -152,7 +152,7 @@
     font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:20px;
     color:var(--petrol); margin:0 0 14px;
   }
-  .field{ margin-bottom:12px; }
+  .field{ margin-bottom:12px; position:relative; }
   .field label{
     display:block; font-size:12px; font-weight:600; color:var(--muted);
     margin-bottom:5px; text-transform:uppercase; letter-spacing:.04em;
@@ -162,6 +162,40 @@
     font-size:14.5px; font-family:'Inter',sans-serif; background:#FBFAF7; color:var(--ink);
   }
   .field input:focus, .field select:focus{ outline:none; border-color:var(--petrol-light); background:#fff; }
+  .ac-list{
+    position:absolute; left:0; right:0; top:100%;
+    background:#fff; border:1px solid var(--line); border-top:none;
+    border-radius:0 0 9px 9px;
+    max-height:220px; overflow-y:auto;
+    z-index:20; display:none;
+    box-shadow:0 8px 18px rgba(15,61,62,.1);
+  }
+  .ac-list.show{ display:block; }
+  .ac-item{
+    padding:10px 12px; font-size:14px; cursor:pointer;
+    border-bottom:1px solid #F0EBE0;
+  }
+  .ac-item:last-child{ border-bottom:none; }
+  .ac-item:hover, .ac-item.hi{ background:#F5EFE6; }
+  .ac-item mark{ background:#FFE3D2; color:var(--ink); border-radius:2px; }
+
+  .bike-split-row{
+    position:relative; margin-bottom:14px; padding-bottom:12px;
+    border-bottom:1px solid var(--line);
+  }
+  .bike-split-row:last-child{ border-bottom:none; margin-bottom:0; padding-bottom:0; }
+  .bike-split-row .bike-split-name-wrap{ position:relative; margin-bottom:8px; }
+  .bike-split-row input[type="text"]{
+    width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:9px;
+    font-size:14.5px; font-family:'Inter',sans-serif; background:#FBFAF7; color:var(--ink);
+  }
+  .bike-split-row input[type="text"]:focus{ outline:none; border-color:var(--petrol-light); background:#fff; }
+  .bike-split-bottom-row{ display:flex; gap:8px; }
+  .bike-split-bottom-row .bike-split-amount{ flex:1; min-width:0; }
+  .bike-split-remove{
+    flex-shrink:0; width:44px; border:none; border-radius:9px;
+    background:#FCEBEB; color:var(--bad); font-size:18px; cursor:pointer; line-height:1;
+  }
   .modal-error{
     font-size:12.5px; color:var(--bad); background:#FCEBEB; border:1px solid #F3C6C6;
     border-radius:7px; padding:7px 10px; margin-bottom:12px; display:none;
@@ -176,7 +210,16 @@
   .modal-btn-row button:active{ transform:scale(.98); }
   .btn-save{ background:var(--cone); color:#fff; }
   .btn-cancel{ background:#EFEAE0; color:var(--petrol); }
-  .btn-save:disabled{ opacity:.6; }
+  .btn-delete{ background:var(--bad); color:#fff; }
+  .btn-save:disabled, .btn-delete:disabled{ opacity:.6; }
+
+  .disambig-msg{ font-size:13.5px; color:var(--muted); margin-bottom:12px; line-height:1.5; }
+  .disambig-option{
+    display:block; width:100%; text-align:left; padding:11px 12px; margin-bottom:8px;
+    border:1px solid var(--line); border-radius:9px; background:#FBFAF7; color:var(--ink);
+    font-family:'Inter',sans-serif; font-size:13.5px; cursor:pointer;
+  }
+  .disambig-option:hover{ border-color:var(--petrol-light); background:#fff; }
 </style>
 </head>
 <body>
@@ -217,6 +260,9 @@
     <div class="section" id="expensesSection">
       <h2>Expenses</h2>
       <div class="desc">Every expense row logged this month.</div>
+      <div class="btn-row" style="margin-top:0; margin-bottom:14px;">
+        <button class="btn-add" id="addExpenseBtnTop">Add Expense</button>
+      </div>
       <div id="expensesList"></div>
       <div class="total-bar">
         <div class="l">Total Expenses</div>
@@ -230,6 +276,9 @@
     <div class="section" id="incomeSection">
       <h2>Income</h2>
       <div class="desc">Every income row logged this month.</div>
+      <div class="btn-row" style="margin-top:0; margin-bottom:14px;">
+        <button class="btn-add" id="addIncomeBtnTop">Add Income</button>
+      </div>
       <div id="incomeList"></div>
       <div class="total-bar">
         <div class="l">Total Income</div>
@@ -247,6 +296,7 @@
     <h3 id="modalTitle">Add Expense</h3>
     <div class="modal-error" id="modalError"></div>
 
+    <div id="modalFields">
     <div class="field">
       <label for="fDate">Date</label>
       <input type="date" id="fDate">
@@ -275,6 +325,25 @@
         <option value="Cash">Cash</option>
       </select>
     </div>
+    <div class="field" id="fExpenseTypeField">
+      <label for="fExpenseType">Type</label>
+      <select id="fExpenseType">
+        <option value="business">Business</option>
+        <option value="personal">Personal</option>
+        <option value="wages">Wages/Bike Purchase</option>
+        <option value="transfer">To Transfer</option>
+      </select>
+    </div>
+    <div class="field" id="fExpenseBikeToggleField">
+      <label style="display:flex; align-items:center; gap:8px; text-transform:none; letter-spacing:normal; font-size:13.5px; font-weight:500; color:var(--ink);">
+        <input type="checkbox" id="fExpenseBikeToggle" style="width:auto;">
+        Split this expense across one or more bikes
+      </label>
+    </div>
+    <div id="fExpenseBikeSplitsField" style="display:none; margin-bottom:12px;">
+      <div id="bikeSplitRows"></div>
+      <button type="button" class="btn-cancel" id="addBikeSplitBtn" style="width:100%; padding:9px; font-size:13px; margin-top:8px;">+ Add another bike</button>
+    </div>
     <div class="field" id="fPaidByField">
       <label for="fPaidBy">Payment method</label>
       <select id="fPaidBy">
@@ -287,14 +356,24 @@
     </div>
 
     <div class="modal-btn-row">
+      <button class="btn-delete" id="modalDeleteBtn" type="button" style="display:none;">Delete</button>
       <button class="btn-cancel" id="modalCancelBtn" type="button">Cancel</button>
       <button class="btn-save" id="modalSaveBtn" type="button">Save</button>
+    </div>
+    </div>
+
+    <div id="cashDisambigPanel" style="display:none;">
+      <div class="disambig-msg">This entry matches more than one row on the "cash" sheet — which one is it?</div>
+      <div id="cashDisambigList"></div>
+      <div class="modal-btn-row">
+        <button class="btn-cancel" id="cashDisambigCancelBtn" type="button">Cancel</button>
+      </div>
     </div>
   </div>
 </div>
 
 <script>
-const scriptUrl = 'https://script.google.com/macros/s/AKfycbw8tbrYmwQE3gLlNrRIBoEFhCak08dzIqd8CN09IMixoY6hPu8QVCeMswzXwvbhrm8M/exec';
+const scriptUrl = 'https://script.google.com/macros/s/AKfycbxWV72e8u9NwBZS43RdOhNZsNCBa-OFZV5aEKtMgsb0MwExfl9XNt7nTvPrK--hEXTFhQ/exec';
 
 const MONTH_NAMES = ['January','February','March','April','May','June',
   'July','August','September','October','November','December'];
@@ -326,6 +405,15 @@ function dmyToIso(s) {
   return `${y}-${mo}-${d}`;
 }
 
+// The reverse of dmyToIso -- used to build a locally-rendered row right
+// after a successful Save, without waiting on a full reload from the sheet.
+function isoToDmy(s) {
+  const m = (s || '').toString().trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (!m) return '';
+  const y = m[1], mo = m[2].padStart(2, '0'), d = m[3].padStart(2, '0');
+  return `${d}/${mo}/${y}`;
+}
+
 // Today's date as yyyy-MM-dd, in the browser's local timezone, for
 // defaulting the Add Expense/Income date field.
 function todayIso() {
@@ -346,24 +434,40 @@ function money(n) {
 let currentExpenses = [];
 let currentIncome = [];
 
+// Mirrors EXPENSE_TYPE_COLORS in Code.gs, so the in-app list gives the same
+// at-a-glance color cue as the spreadsheet's expense description cell.
+const EXPENSE_TYPE_COLORS = {
+  business: null,
+  personal: '#cfe2f3',
+  wages: '#f6b26b',
+  transfer: '#fff2cc'
+};
+const EXPENSE_TYPE_LABELS = {
+  business: 'Business', personal: 'Personal', wages: 'Wages/Bike Purchase', transfer: 'To Transfer'
+};
+
 function renderExpenses(expenses) {
   currentExpenses = expenses;
   const list = document.getElementById('expensesList');
   if (!expenses.length) {
     list.innerHTML = '<div class="empty-hint">No expenses logged this month.</div>';
   } else {
-    list.innerHTML = expenses.map((e, i) => `
-      <div class="row clickable" data-index="${i}">
+    list.innerHTML = expenses.map((e, i) => {
+      const bg = EXPENSE_TYPE_COLORS[e.type];
+      return `
+      <div class="row clickable" data-index="${i}" ${bg ? `style="background:${bg};"` : ''}>
         <div class="left">
           <div class="title">${e.expense || '—'}</div>
           <div class="meta">${e.date || ''}</div>
           <div class="chips">
             ${e.payment ? `<span class="chip pay">Payment: ${e.payment}</span>` : ''}
+            ${e.type && e.type !== 'business' ? `<span class="chip name">${EXPENSE_TYPE_LABELS[e.type]}</span>` : ''}
           </div>
         </div>
         <div class="amt expense">${money(e.amount)}</div>
       </div>
-    `).join('');
+    `;
+    }).join('');
     list.querySelectorAll('.row').forEach(rowEl => {
       rowEl.addEventListener('click', () => openExpenseModal(currentExpenses[Number(rowEl.dataset.index)]));
     });
@@ -440,6 +544,119 @@ document.getElementById('nextMonthBtn').addEventListener('click', () => {
 });
 monthSelect.addEventListener('change', () => loadMonth(Number(monthSelect.value)));
 
+// Fetched once, up front -- feeds the "attach to bike" search field's
+// autocomplete list when adding/editing an expense. A failure here isn't
+// fatal to the page; the field just won't suggest anything until a reload.
+let bikesNames = [];
+async function loadBikesList() {
+  try {
+    const res = await fetch(scriptUrl + '?action=bikesList').then(r => r.json());
+    if (!res.success) return;
+    bikesNames = res.bikes || [];
+  } catch (err) {
+    // Swallow -- the field just has nothing to suggest if this fails.
+  }
+}
+loadBikesList();
+
+// Same tokenMatch/highlight substring-search helpers already used for the
+// Nationality and bike-model autocompletes on the Customer Record page --
+// every typed word (in any order) must appear somewhere in the option.
+function tokenMatch(value, query) {
+  if (!query) return true;
+  const v = (value || '').toString().toLowerCase();
+  const tokens = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  return tokens.every(t => v.includes(t));
+}
+function highlight(value, query) {
+  let out = String(value || '');
+  const tokens = (query || '').toLowerCase().trim().split(/\s+/).filter(Boolean);
+  tokens.forEach(t => {
+    if (!t) return;
+    const re = new RegExp('(' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig');
+    out = out.replace(re, '<mark>$1</mark>');
+  });
+  return out;
+}
+
+// Generic "type to filter, or click/focus to see everything" autocomplete,
+// same UX as the Nationality field on the Customer Record page. getOptions
+// is a function rather than a fixed array so this keeps working even
+// though bikesNames is still loading (async) when this is first attached.
+// id-based wrapper for static fields (looks up the input + its sibling
+// .ac-list[data-for] by id, same as the Customer Record page's fields).
+function attachAutocomplete(inputId, getOptions) {
+  const input = document.getElementById(inputId);
+  const list = document.querySelector('.ac-list[data-for="' + inputId + '"]');
+  attachAutocompleteToElements(input, list, getOptions);
+}
+
+// Elements-based core -- used directly for the dynamically-created bike
+// split rows below, where there's no fixed id to look up (rows are added
+// and removed at runtime).
+function attachAutocompleteToElements(input, list, getOptions) {
+  if (!input || !list) return;
+  let hiIndex = -1;
+
+  function close() {
+    list.classList.remove('show');
+    list.innerHTML = '';
+    hiIndex = -1;
+  }
+
+  function open(query) {
+    const all = getOptions() || [];
+    const options = (query ? all.filter(v => tokenMatch(v, query)) : all).slice(0, 60);
+    if (!options.length) { close(); return; }
+    list.innerHTML = options.map((v, i) =>
+      `<div class="ac-item" data-index="${i}">${highlight(v, query || '')}</div>`
+    ).join('');
+    list.classList.add('show');
+    hiIndex = -1;
+    Array.from(list.children).forEach((el, i) => {
+      el.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        input.value = options[i];
+        close();
+      });
+    });
+    list._options = options;
+  }
+
+  input.addEventListener('input', () => open(input.value.trim()));
+  input.addEventListener('focus', () => open(input.value.trim()));
+
+  input.addEventListener('keydown', (e) => {
+    const items = Array.from(list.children);
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (hiIndex >= 0 && list._options) {
+        input.value = list._options[hiIndex];
+      }
+      close();
+      return;
+    }
+    if (!items.length) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      hiIndex = Math.min(hiIndex + 1, items.length - 1);
+      items.forEach((el, i) => el.classList.toggle('hi', i === hiIndex));
+      items[hiIndex] && items[hiIndex].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      hiIndex = Math.max(hiIndex - 1, 0);
+      items.forEach((el, i) => el.classList.toggle('hi', i === hiIndex));
+      items[hiIndex] && items[hiIndex].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Escape') {
+      close();
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!input.contains(e.target) && !list.contains(e.target)) close();
+  });
+}
+
 // ---------------- Add/Edit modal ----------------
 
 const modalBackdrop = document.getElementById('modalBackdrop');
@@ -452,21 +669,85 @@ const fName = document.getElementById('fName');
 const fAmount = document.getElementById('fAmount');
 const fPaidBy = document.getElementById('fPaidBy');
 const fExpensePayment = document.getElementById('fExpensePayment');
+const fExpenseType = document.getElementById('fExpenseType');
+const fExpenseTypeField = document.getElementById('fExpenseTypeField');
+const fExpenseBikeToggle = document.getElementById('fExpenseBikeToggle');
+const fExpenseBikeToggleField = document.getElementById('fExpenseBikeToggleField');
+const fExpenseBikeSplitsField = document.getElementById('fExpenseBikeSplitsField');
+const bikeSplitRows = document.getElementById('bikeSplitRows');
+
+// Builds one "bike + amount" row for the split-expense UI, with its own
+// autocomplete (bikesNames) and a remove button. Used both when the user
+// clicks "+ Add another bike" and when re-populating an existing entry's
+// splits in openModal.
+function addBikeSplitRow(bikeName, amount) {
+  const row = document.createElement('div');
+  row.className = 'bike-split-row';
+  row.innerHTML = `
+    <div class="bike-split-name-wrap">
+      <input type="text" class="bike-split-name" placeholder="Bike" autocomplete="off">
+      <div class="ac-list"></div>
+    </div>
+    <div class="bike-split-bottom-row">
+      <input type="text" inputmode="decimal" class="bike-split-amount" placeholder="Amount (฿)">
+      <button type="button" class="bike-split-remove" aria-label="Remove this bike">×</button>
+    </div>
+  `;
+  const nameInput = row.querySelector('.bike-split-name');
+  const list = row.querySelector('.ac-list');
+  nameInput.value = bikeName || '';
+  row.querySelector('.bike-split-amount').value = (amount === '' || amount === undefined || amount === null) ? '' : amount;
+  attachAutocompleteToElements(nameInput, list, () => bikesNames);
+  row.querySelector('.bike-split-remove').addEventListener('click', () => row.remove());
+  bikeSplitRows.appendChild(row);
+}
+
+// Reads back every filled-in (bike + amount) pair currently in the split
+// rows -- rows with a blank bike name or blank/invalid amount are ignored,
+// so an empty leftover row from "+ Add another bike" is simply dropped
+// rather than causing a validation error.
+function collectBikeSplits() {
+  return Array.from(bikeSplitRows.querySelectorAll('.bike-split-row')).map(row => {
+    const bike = row.querySelector('.bike-split-name').value.trim();
+    const amtRaw = row.querySelector('.bike-split-amount').value.trim();
+    const amount = amtRaw === '' ? '' : Number(amtRaw);
+    return { bike, amount };
+  }).filter(s => s.bike && s.amount !== '' && !isNaN(s.amount));
+}
+
+document.getElementById('addBikeSplitBtn').addEventListener('click', () => addBikeSplitRow('', ''));
 const fExpenseField = document.getElementById('fExpenseField');
 const fIncomeField = document.getElementById('fIncomeField');
 const fNameField = document.getElementById('fNameField');
 const fPaidByField = document.getElementById('fPaidByField');
 const fExpensePaymentField = document.getElementById('fExpensePaymentField');
 const modalSaveBtn = document.getElementById('modalSaveBtn');
+const modalDeleteBtn = document.getElementById('modalDeleteBtn');
+const modalFields = document.getElementById('modalFields');
+const cashDisambigPanel = document.getElementById('cashDisambigPanel');
+const cashDisambigList = document.getElementById('cashDisambigList');
+const cashDisambigCancelBtn = document.getElementById('cashDisambigCancelBtn');
 
 // modalMode is one of: 'addExpense', 'editExpense', 'addIncome', 'editIncome'
 let modalMode = null;
 let modalEditRow = null; // sheet row number, only set when editing
+let pendingPayload = null; // last save/delete payload, kept around in case the
+                           // server asks us to disambiguate a "cash" sheet match
 
 function setModalError(msg) {
   if (!msg) { modalError.classList.remove('show'); modalError.textContent = ''; return; }
   modalError.textContent = msg;
   modalError.classList.add('show');
+}
+
+// Selects the option matching rawValue, ignoring case/whitespace, so a
+// sheet cell like "cash" still preselects the "Cash" option. Leaves the
+// select on its blank default if nothing matches.
+function setSelectValueCI(selectEl, rawValue) {
+  const val = (rawValue || '').toString().trim();
+  if (!val) { selectEl.value = ''; return; }
+  const match = Array.from(selectEl.options).find(o => o.value.toLowerCase() === val.toLowerCase());
+  selectEl.value = match ? match.value : '';
 }
 
 function openModal(mode, isIncome, entry) {
@@ -479,20 +760,39 @@ function openModal(mode, isIncome, entry) {
   fNameField.style.display = isIncome ? 'block' : 'none';
   fPaidByField.style.display = isIncome ? 'block' : 'none';
   fExpensePaymentField.style.display = isIncome ? 'none' : 'block';
+  fExpenseTypeField.style.display = isIncome ? 'none' : 'block';
+  fExpenseBikeToggleField.style.display = isIncome ? 'none' : 'block';
 
   if (isIncome) {
     modalTitle.textContent = entry ? 'Edit Income' : 'Add Income';
     fIncome.value = entry ? (entry.income || '') : '';
     fName.value = entry ? (entry.name || '') : '';
-    fPaidBy.value = entry ? (entry.paidBy || '') : '';
+    setSelectValueCI(fPaidBy, entry ? entry.paidBy : '');
   } else {
     modalTitle.textContent = entry ? 'Edit Expense' : 'Add Expense';
     fExpense.value = entry ? (entry.expense || '') : '';
-    fExpensePayment.value = entry ? (entry.payment || '') : '';
+    setSelectValueCI(fExpensePayment, entry ? entry.payment : '');
+    fExpenseType.value = (entry && entry.type) ? entry.type : 'business';
+
+    const splits = (entry && entry.bikeSplits) || [];
+    fExpenseBikeToggle.checked = splits.length > 0;
+    fExpenseBikeSplitsField.style.display = splits.length > 0 ? 'block' : 'none';
+    bikeSplitRows.innerHTML = '';
+    if (splits.length) {
+      splits.forEach(s => addBikeSplitRow(s.bike, s.amount));
+    }
+    // No placeholder row created here when there are no existing splits --
+    // the checkbox's own 'change' handler below creates the first row
+    // lazily, the moment it's actually ticked, so it can seed that row's
+    // amount from whatever's in the main Amount field right then.
   }
   fDate.value = entry ? dmyToIso(entry.date) : todayIso();
   fAmount.value = (entry && typeof entry.amount === 'number') ? entry.amount : '';
 
+  // Delete only makes sense for an entry that already exists on the sheet.
+  modalDeleteBtn.style.display = entry ? 'block' : 'none';
+
+  hideCashDisambiguation();
   modalBackdrop.classList.add('show');
 }
 
@@ -501,14 +801,160 @@ function openIncomeModal(entry) { openModal(entry ? 'editIncome' : 'addIncome', 
 
 function closeModal() {
   modalBackdrop.classList.remove('show');
+  pendingPayload = null;
+  hideCashDisambiguation();
 }
 
 document.getElementById('addExpenseBtn').addEventListener('click', () => openExpenseModal(null));
 document.getElementById('addIncomeBtn').addEventListener('click', () => openIncomeModal(null));
+document.getElementById('addExpenseBtnTop').addEventListener('click', () => openExpenseModal(null));
+document.getElementById('addIncomeBtnTop').addEventListener('click', () => openIncomeModal(null));
 document.getElementById('modalCancelBtn').addEventListener('click', closeModal);
-modalBackdrop.addEventListener('click', (e) => { if (e.target === modalBackdrop) closeModal(); });
+fExpenseBikeToggle.addEventListener('change', () => {
+  fExpenseBikeSplitsField.style.display = fExpenseBikeToggle.checked ? 'block' : 'none';
+  if (fExpenseBikeToggle.checked && !bikeSplitRows.querySelector('.bike-split-row')) {
+    // Default the first row's amount to whatever's already in the main
+    // Amount field above -- a natural starting point to split down from,
+    // rather than making them retype the same number.
+    addBikeSplitRow('', fAmount.value || '');
+  }
+});
+// Close only on a genuine click on the backdrop itself -- NOT when the
+// mousedown started inside the modal (e.g. dragging to select text in an
+// amount field) and the drag happens to end with the mouse released over
+// the backdrop. Without this check, selecting an input's text by dragging
+// out past the modal's edge would fire a "click" on the backdrop and
+// close the whole modal mid-edit.
+let modalMouseDownOnBackdrop = false;
+modalBackdrop.addEventListener('mousedown', (e) => {
+  modalMouseDownOnBackdrop = (e.target === modalBackdrop);
+});
+modalBackdrop.addEventListener('click', (e) => {
+  if (e.target === modalBackdrop && modalMouseDownOnBackdrop) closeModal();
+  modalMouseDownOnBackdrop = false;
+});
 
-modalSaveBtn.addEventListener('click', async () => {
+// Shows a list of candidate "cash" sheet rows the server couldn't tell
+// apart on its own (e.g. an old entry with no stored link, and more than
+// one row matches its description + amount). Nothing has been written yet
+// at this point -- picking one resubmits the same payload with
+// cashRowChoice set, so the server can finish the save/delete using
+// exactly that row.
+function showCashDisambiguation(candidates, payload) {
+  pendingPayload = payload;
+  cashDisambigList.innerHTML = candidates.map((c) => {
+    const amt = typeof c.amount === 'number'
+      ? c.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : (c.amount || '—');
+    return `<button type="button" class="disambig-option" data-row="${c.row}">${c.date || '—'} — ${c.text || '—'} — ฿${amt}</button>`;
+  }).join('');
+  cashDisambigList.querySelectorAll('.disambig-option').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      pendingPayload.cashRowChoice = Number(btn.dataset.row);
+      hideCashDisambiguation();
+      runPendingPayload();
+    });
+  });
+  modalFields.style.display = 'none';
+  cashDisambigPanel.style.display = 'block';
+}
+
+function hideCashDisambiguation() {
+  cashDisambigPanel.style.display = 'none';
+  modalFields.style.display = 'block';
+}
+
+cashDisambigCancelBtn.addEventListener('click', () => {
+  pendingPayload = null;
+  hideCashDisambiguation();
+});
+
+// Adds or updates one entry in the already-loaded currentExpenses/
+// currentIncome arrays and re-renders just that list -- used after a
+// successful Add/Edit so it doesn't have to wait on a full reload from the
+// sheet. Safe because editing never shifts rows, and a plain append also
+// doesn't shift anything (the one case that does -- a row inserted above
+// the totals block -- is flagged by the server as res.shifted, and that
+// case falls back to a full reload instead of calling this).
+function upsertLocalExpense(entry) {
+  const idx = currentExpenses.findIndex(e => e.row === entry.row);
+  if (idx === -1) currentExpenses.push(entry); else currentExpenses[idx] = entry;
+  renderExpenses(currentExpenses);
+}
+function upsertLocalIncome(entry) {
+  const idx = currentIncome.findIndex(e => e.row === entry.row);
+  if (idx === -1) currentIncome.push(entry); else currentIncome[idx] = entry;
+  renderIncome(currentIncome);
+}
+
+// Shared by both Save and Delete -- posts whatever's in pendingPayload, and
+// either finishes normally, shows an error, or (if the server couldn't
+// uniquely match a "cash" sheet row) shows the disambiguation picker above
+// and waits for the user to choose before resubmitting.
+async function runPendingPayload() {
+  if (!pendingPayload) return;
+  const payload = pendingPayload;
+  const isDelete = payload.action === 'deleteIncome' || payload.action === 'deleteExpense';
+  const busyBtn = isDelete ? modalDeleteBtn : modalSaveBtn;
+
+  busyBtn.disabled = true;
+  setModalError(null);
+  try {
+    const res = await fetch(scriptUrl, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }).then(r => r.json());
+
+    if (res.needsDisambiguation) {
+      showCashDisambiguation(res.candidates, payload);
+      return;
+    }
+    if (!res.success) {
+      setModalError(res.error || (isDelete ? 'Delete failed — please try again.' : 'Save failed — please try again.'));
+      return;
+    }
+    pendingPayload = null;
+    closeModal();
+
+    // Deletes always reload the month (rows shift, and deletes are rare
+    // enough that correctness beats speed here). Add/Edit update the
+    // on-page list directly from what was just saved -- unless the server
+    // flagged a rare row-insert shift, in which case a full reload is the
+    // only safe option.
+    if (isDelete || res.shifted) {
+      loadMonth(Number(monthSelect.value));
+    } else if (payload.action === 'addExpense' || payload.action === 'editExpense') {
+      upsertLocalExpense({
+        row: res.row,
+        date: isoToDmy(payload.date),
+        expense: payload.expense,
+        amount: payload.amount === '' ? '' : Number(payload.amount),
+        payment: payload.payment,
+        type: payload.expenseType,
+        bikeSplits: payload.expenseBikeSplits
+      });
+    } else if (payload.action === 'addIncome' || payload.action === 'editIncome') {
+      upsertLocalIncome({
+        row: res.row,
+        date: isoToDmy(payload.date),
+        income: payload.income,
+        name: payload.name,
+        amount: payload.amount === '' ? '' : Number(payload.amount),
+        paidBy: payload.paidBy
+      });
+    }
+
+    if (res.warning) {
+      alert((isDelete ? 'Deleted, but: ' : 'Saved, but: ') + res.warning);
+    }
+  } catch (err) {
+    setModalError((isDelete ? 'Delete failed: ' : 'Save failed: ') + err.message);
+  } finally {
+    busyBtn.disabled = false;
+  }
+}
+
+modalSaveBtn.addEventListener('click', () => {
   const isIncome = modalMode === 'addIncome' || modalMode === 'editIncome';
   const isEdit = modalMode === 'editExpense' || modalMode === 'editIncome';
 
@@ -527,30 +973,30 @@ modalSaveBtn.addEventListener('click', async () => {
   } else {
     payload.expense = fExpense.value.trim();
     payload.payment = fExpensePayment.value;
+    payload.expenseType = fExpenseType.value;
+    payload.expenseBikeSplits = fExpenseBikeToggle.checked ? collectBikeSplits() : [];
     if (!payload.expense) { setModalError('Please enter an expense description.'); return; }
   }
   payload.amount = fAmount.value === '' ? '' : Number(fAmount.value);
   if (fAmount.value !== '' && isNaN(payload.amount)) { setModalError('Amount must be a number.'); return; }
 
-  modalSaveBtn.disabled = true;
-  setModalError(null);
-  try {
-    const res = await fetch(scriptUrl, {
-      method: 'POST',
-      body: JSON.stringify(payload)
-    }).then(r => r.json());
+  pendingPayload = payload;
+  runPendingPayload();
+});
 
-    if (!res.success) {
-      setModalError(res.error || 'Save failed — please try again.');
-      return;
-    }
-    closeModal();
-    loadMonth(Number(monthSelect.value));
-  } catch (err) {
-    setModalError('Save failed: ' + err.message);
-  } finally {
-    modalSaveBtn.disabled = false;
+modalDeleteBtn.addEventListener('click', () => {
+  const isIncome = modalMode === 'editIncome';
+  const label = isIncome ? (fIncome.value.trim() || 'this income entry') : (fExpense.value.trim() || 'this expense');
+  if (!confirm('Delete ' + label + '? This also reverses anything it logged on the "cash" sheet or a Wise/Revolut deposit total. This can\'t be undone.')) {
+    return;
   }
+
+  pendingPayload = {
+    action: isIncome ? 'deleteIncome' : 'deleteExpense',
+    monthIndex: Number(monthSelect.value),
+    row: modalEditRow
+  };
+  runPendingPayload();
 });
 
 // Default to the current month.
