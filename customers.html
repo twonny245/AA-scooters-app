@@ -194,6 +194,12 @@
   .status.ok{display:block; background:#E8F5EE; color:var(--ok); border:1px solid #BEE3CE;}
   .status.err{display:block; background:#FCEBEB; color:var(--err); border:1px solid #F3C6C6;}
   .status.warn{display:block; background:#FFF3E6; color:var(--warn); border:1px solid #F3D9B8;}
+  .status.progress{display:flex; align-items:center; gap:9px; background:#EAF2FB; color:#2A5A8C; border:1px solid #BBD6F0;}
+  .status-spinner{
+    width:14px; height:14px; border:2px solid #BBD6F0; border-top-color:#2A5A8C;
+    border-radius:50%; flex-shrink:0; animation: status-spin 0.7s linear infinite;
+  }
+  @keyframes status-spin{ to{ transform:rotate(360deg); } }
   .setup{
     background:#FBF6EC;
     border:1px dashed var(--line);
@@ -271,6 +277,36 @@
     margin-top:14px; background:#fff; color:var(--petrol);
     border:1px solid var(--line);
   }
+  /* ---- Page gate: hide the tabs + form until the bikes list has
+     loaded from the spreadsheet, so nobody can start typing an entry
+     before the bike autocomplete (and plate data) is ready. ---- */
+  body:not(.bikes-ready) .tabs,
+  body:not(.bikes-ready) main{ display:none; }
+  .page-gate{
+    display:none;
+    max-width:520px; margin:26px auto; padding:0 16px;
+  }
+  body:not(.bikes-ready) .page-gate{ display:block; }
+  .page-gate .gate-card{
+    background:#FCEBEB; border:1px solid #F3C6C6; border-radius:14px;
+    padding:22px 20px; display:flex; align-items:center; gap:12px;
+  }
+  .page-gate .gate-msg{
+    color:#C62828; font-size:14.5px; font-weight:600; line-height:1.5;
+  }
+  .gate-spinner{
+    width:20px; height:20px; flex-shrink:0;
+    border:3px solid #F3C6C6; border-top-color:#C62828;
+    border-radius:50%; animation:gate-spin .7s linear infinite;
+  }
+  @keyframes gate-spin{ to{ transform:rotate(360deg); } }
+  .gate-retry{
+    width:auto; margin-top:0; padding:9px 16px;
+    background:#C62828; font-size:14px; display:none;
+  }
+  .page-gate.gate-error .gate-spinner{ display:none; }
+  .page-gate.gate-error .gate-retry{ display:inline-block; }
+
   .load-status{
     font-size:12px; color:#B36A2E; background:#FFF3E6;
     border:1px solid #F3D9B8; border-radius:7px;
@@ -303,6 +339,18 @@
 <div class="page-head">
   <h1>Customer Record</h1>
   <div class="sub">Adds a row straight into the "customer" tab</div>
+</div>
+
+<!-- Shown INSTEAD of the tabs + form until the bikes list has loaded
+     from the spreadsheet (see the body:not(.bikes-ready) CSS rules). -->
+<div class="page-gate" id="pageGate">
+  <div class="gate-card">
+    <div class="gate-spinner"></div>
+    <div>
+      <div class="gate-msg" id="pageGateMsg">Loading bikes from the spreadsheet…</div>
+      <button type="button" class="gate-retry" id="pageGateRetry">Try again</button>
+    </div>
+  </div>
 </div>
 
 <div class="tabs">
@@ -380,7 +428,7 @@
       <div class="row2">
         <div>
           <label for="totalPrice">Total price (฿)</label>
-          <input id="totalPrice" type="number" min="0" step="1" placeholder="2500">
+          <input id="totalPrice" type="number" min="0" step="1" placeholder="2500" required>
         </div>
         <div>
           <label for="paidBy">Paid by</label>
@@ -413,6 +461,15 @@
         <input id="depositAmount" type="number" min="0" step="1" placeholder="Deposit amount (฿)" class="hidden" style="margin-top:8px;">
       </div>
       <div class="load-status" id="depositSkipNote" style="margin-top:8px;">No deposit needed — this is a rental extension, not a new rental.</div>
+      <div id="paidFromDepositSection" class="hidden" style="margin-top:8px;">
+        <div class="deal-row">
+          <input type="checkbox" id="paidFromDepositCheckbox">
+          <label for="paidFromDepositCheckbox">Paid from an existing deposit</label>
+        </div>
+        <select id="paidFromDepositSelect" disabled style="margin-top:8px;">
+          <option value="">— Select —</option>
+        </select>
+      </div>
     </div>
 
 
@@ -511,6 +568,42 @@ const form = document.getElementById('intakeForm');
 const statusBox = document.getElementById('statusBox');
 const submitBtn = document.getElementById('submitBtn');
 
+// Lightweight "what's happening" indicator shown while a save is in
+// flight. Apps Script doesn't give us real progress events, so this fakes
+// reasonable stages by time: "Connecting…" immediately, then "Saving…"
+// shortly after if still pending. stopSaveProgress() cancels the pending
+// stage-change timer; the caller then overwrites statusBox with the real
+// result (ok/warn/err) once the request settles.
+let saveProgressTimer = null;
+function startSaveProgress() {
+  statusBox.className = 'status progress';
+  statusBox.innerHTML = '<span class="status-spinner"></span><span>Connecting…</span>';
+  clearTimeout(saveProgressTimer);
+  saveProgressTimer = setTimeout(() => {
+    statusBox.innerHTML = '<span class="status-spinner"></span><span>Saving…</span>';
+  }, 500);
+}
+function stopSaveProgress() {
+  clearTimeout(saveProgressTimer);
+}
+
+// While a save is in flight, disable every button on the page -- not just
+// the submit button -- so a double-click (or hitting some other button
+// mid-save) can't fire off a second write and create a duplicate customer
+// record. Only re-enables the buttons that were actually enabled before
+// the save started.
+function setAllButtonsDisabled(disabled) {
+  document.querySelectorAll('button').forEach(b => {
+    if (disabled) {
+      if (!b.disabled) b.dataset.reenableAfterSave = '1';
+      b.disabled = true;
+    } else if (b.dataset.reenableAfterSave) {
+      b.disabled = false;
+      delete b.dataset.reenableAfterSave;
+    }
+  });
+}
+
 // Tracks whether the entry currently in the form is a normal walk-in add
 // ("direct") or was auto-populated by the "Extend" flow on Bikes Status
 // ("extend"). Sent to the backend so the monthly/cash sheet rows read
@@ -535,6 +628,79 @@ function setDepositSectionVisible(visible) {
     depositAmount.value = '';
     section.classList.add('hidden');
     note.classList.add('show');
+  }
+}
+
+// ---- "Paid from an existing deposit" -- the inverse of the security
+// deposit section above: only relevant when this form was prefilled by
+// the long-Extend flow (entrySource === 'extend'), since only an
+// extension has a prior deposit to draw from. A brand-new walk-in
+// customer never sees this at all. ----
+function money(n) {
+  if (n === '' || n === null || n === undefined || isNaN(Number(n))) return '—';
+  const num = Number(n);
+  const sign = num < 0 ? '-' : '';
+  return sign + '฿' + Math.abs(num).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function depositCategoryForPaidBy(paidByVal) {
+  const v = (paidByVal || '').toString().trim().toLowerCase();
+  if (v === 'scan') return 'bank';
+  if (v === 'wise') return 'wise';
+  if (v === 'revolut') return 'revolut';
+  return null;
+}
+async function populatePaidFromDepositSelect(categoryKey) {
+  paidFromDepositSelect.innerHTML = '<option value="">Loading…</option>';
+  paidFromDepositSelect.disabled = true;
+  try {
+    const res = await fetch(scriptUrl + '?action=deposits').then(r => r.json());
+    if (!res.success) {
+      paidFromDepositSelect.innerHTML = '<option value="">— Could not load deposits —</option>';
+      return;
+    }
+    const matches = (res.deposits || []).filter(d => d.category === categoryKey);
+    if (!matches.length) {
+      paidFromDepositSelect.innerHTML = '<option value="">— No deposits available —</option>';
+      return;
+    }
+    paidFromDepositSelect.innerHTML = '<option value="">— Select —</option>' +
+      matches.map(d => `<option value="${d.row}">${(d.name || '(no name)')} — ${money(d.amount)}</option>`).join('');
+  } catch (err) {
+    paidFromDepositSelect.innerHTML = '<option value="">— Could not load deposits —</option>';
+  } finally {
+    paidFromDepositSelect.disabled = false;
+  }
+}
+function refreshPaidFromDepositUI() {
+  if (entrySource !== 'extend') {
+    paidFromDepositCheckbox.checked = false;
+    paidFromDepositSection.classList.add('hidden');
+    paidFromDepositSelect.disabled = true;
+    return;
+  }
+  paidFromDepositSection.classList.remove('hidden');
+  const category = depositCategoryForPaidBy(document.getElementById('paidBy').value);
+  if (!category) {
+    paidFromDepositCheckbox.checked = false;
+    paidFromDepositSelect.disabled = true;
+    paidFromDepositSelect.innerHTML = '<option value="">— Select —</option>';
+    return;
+  }
+  if (paidFromDepositCheckbox.checked) {
+    paidFromDepositSelect.disabled = false;
+    populatePaidFromDepositSelect(category);
+  } else {
+    paidFromDepositSelect.disabled = true;
+  }
+}
+function setPaidFromDepositVisible(visible) {
+  if (!visible) {
+    paidFromDepositCheckbox.checked = false;
+    paidFromDepositSelect.innerHTML = '<option value="">— Select —</option>';
+    paidFromDepositSelect.disabled = true;
+    paidFromDepositSection.classList.add('hidden');
+  } else {
+    refreshPaidFromDepositUI();
   }
 }
 
@@ -586,15 +752,41 @@ depositCheckbox.addEventListener('change', () => {
 });
 depositMethod.addEventListener('change', refreshDepositAmountVisibility);
 
+const paidFromDepositCheckbox = document.getElementById('paidFromDepositCheckbox');
+const paidFromDepositSelect = document.getElementById('paidFromDepositSelect');
+const paidFromDepositSection = document.getElementById('paidFromDepositSection');
+paidFromDepositCheckbox.addEventListener('change', refreshPaidFromDepositUI);
+// Switching payment method while the section is visible refreshes which
+// deposit category (if any) the dropdown draws from.
+document.getElementById('paidBy').addEventListener('change', () => { if (entrySource === 'extend') refreshPaidFromDepositUI(); });
+
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   statusBox.className = 'status';
-  submitBtn.disabled = true;
+  setAllButtonsDisabled(true);
   submitBtn.textContent = 'Saving…';
 
   const rentingDateFrom = document.getElementById('rentingDateFrom').value;
   const returnDate = document.getElementById('returnDate').value;
   const totalPrice = document.getElementById('totalPrice').value;
+
+  if (totalPrice === '' || totalPrice === null || isNaN(Number(totalPrice))) {
+    statusBox.textContent = 'Please enter a total price before saving.';
+    statusBox.className = 'status err';
+    setAllButtonsDisabled(false);
+    submitBtn.textContent = 'Add to sheet';
+    document.getElementById('totalPrice').focus();
+    return;
+  }
+
+  if (entrySource === 'extend' && paidFromDepositCheckbox.checked && !paidFromDepositSelect.value) {
+    statusBox.textContent = 'Please select which deposit this extension was paid from, or untick the checkbox.';
+    statusBox.className = 'status err';
+    setAllButtonsDisabled(false);
+    submitBtn.textContent = 'Add to sheet';
+    return;
+  }
+
   const baseContact = contactSelect.value === 'other' ? contactOther.value.trim() : contactSelect.value;
 
   function computeDays(fromStr, toStr) {
@@ -629,6 +821,15 @@ form.addEventListener('submit', async (e) => {
     source: entrySource
   };
 
+  // Add-only, extend-only: never sent for a brand-new customer, matching
+  // the server's own isExtendSource check in Code.gs (belt and suspenders).
+  if (entrySource === 'extend' && paidFromDepositCheckbox.checked && paidFromDepositSelect.value) {
+    payload.paidFromDeposit = true;
+    payload.depositCategory = depositCategoryForPaidBy(document.getElementById('paidBy').value);
+    payload.depositRow = Number(paidFromDepositSelect.value);
+  }
+
+  startSaveProgress();
   try {
     const res = await fetch(scriptUrl, {
       method: 'POST',
@@ -636,6 +837,7 @@ form.addEventListener('submit', async (e) => {
       body: JSON.stringify(payload)
     });
     const data = await res.json();
+    stopSaveProgress();
     if (data.success) {
       if (data.warning) {
         statusBox.textContent = 'Added — "' + payload.name + '" saved, but: ' + data.warning;
@@ -662,15 +864,17 @@ form.addEventListener('submit', async (e) => {
       depositAmount.required = false;
       entrySource = 'direct';
       setDepositSectionVisible(true);
+      setPaidFromDepositVisible(false);
       setDefaultsToNow();
     } else {
       throw new Error(data.error || 'Unknown error');
     }
   } catch (err) {
+    stopSaveProgress();
     statusBox.textContent = 'Could not save: ' + err.message;
     statusBox.className = 'status err';
   } finally {
-    submitBtn.disabled = false;
+    setAllButtonsDisabled(false);
     submitBtn.textContent = 'Add to sheet';
   }
 });
@@ -723,6 +927,7 @@ function prefillFromQueryParams() {
   if (qp.get('source') === 'extend') {
     entrySource = 'extend';
     setDepositSectionVisible(false);
+    setPaidFromDepositVisible(true);
     statusBox.textContent = 'Prefilled from an extended rental — no deposit needed here. Check the details, then save.';
   } else {
     statusBox.textContent = 'Prefilled from an extended rental — check the details, then save.';
@@ -794,6 +999,19 @@ function setBikeModelLoadStatus(msg) {
   el.classList.add('show');
 }
 
+// ---- Page gate: the whole page (tabs + form) stays hidden behind a red
+// "Loading bikes…" card until the bikes list has actually arrived from
+// the spreadsheet, so an entry can never be started before the bike
+// autocomplete and plate data are ready. On failure the card shows the
+// error and a "Try again" button instead of leaving the page stuck. ----
+const pageGate = document.getElementById('pageGate');
+const pageGateMsg = document.getElementById('pageGateMsg');
+document.getElementById('pageGateRetry').addEventListener('click', () => {
+  pageGate.classList.remove('gate-error');
+  pageGateMsg.textContent = 'Loading bikes from the spreadsheet…';
+  loadBikeNames();
+});
+
 function loadBikeNames() {
   if (bikeNamesPromise) return bikeNamesPromise;
   setBikeModelLoadStatus('Loading bikes…');
@@ -809,10 +1027,18 @@ function loadBikeNames() {
       bikeTaxRows = data.categoryRows || [];
       setBikeModelLoadStatus(null);
       renderResults();
+      // Bikes are in -- open the page up.
+      document.body.classList.add('bikes-ready');
       return bikeNames;
     })
     .catch(err => {
       setBikeModelLoadStatus('Could not load bike list: ' + err.message);
+      // Keep the page gated and show the error + retry on the card
+      // (unless a previous attempt already succeeded and opened the page).
+      if (!document.body.classList.contains('bikes-ready')) {
+        pageGate.classList.add('gate-error');
+        pageGateMsg.textContent = 'Could not load the bikes list: ' + err.message;
+      }
       bikeNamesPromise = null;
       return [];
     });

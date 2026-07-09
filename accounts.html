@@ -43,11 +43,22 @@
   .topbar nav a.active{ color:#fff; border-bottom-color:var(--cone); }
 
   .page-head{ max-width:960px; margin:0 auto; padding:22px 16px 4px; }
+  .page-head-top{
+    display:flex; align-items:flex-start; justify-content:space-between;
+    gap:12px; flex-wrap:wrap;
+  }
   .page-head h1{
     font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:26px;
     color:var(--petrol); margin:0;
   }
   .page-head .sub{ color:var(--muted); font-size:13px; margin-top:6px; line-height:1.5; }
+  .btn-deposits{
+    flex-shrink:0; display:inline-block; background:var(--cone); color:#fff;
+    text-decoration:none; font-family:'Barlow Condensed',sans-serif; font-weight:700;
+    font-size:13px; letter-spacing:.03em; text-transform:uppercase;
+    padding:11px 18px; border-radius:10px; white-space:nowrap;
+  }
+  .btn-deposits:active{ transform:scale(.97); }
 
   main{ max-width:960px; margin:0 auto; padding:16px 16px 60px; }
 
@@ -201,6 +212,16 @@
     border-radius:7px; padding:7px 10px; margin-bottom:12px; display:none;
   }
   .modal-error.show{ display:block; }
+  .modal-progress{
+    font-size:12.5px; color:#2A5A8C; background:#EAF2FB; border:1px solid #BBD6F0;
+    border-radius:7px; padding:7px 10px; margin-bottom:12px; display:none; align-items:center; gap:9px;
+  }
+  .modal-progress.show{ display:flex; }
+  .modal-progress-spinner{
+    width:14px; height:14px; border:2px solid #BBD6F0; border-top-color:#2A5A8C;
+    border-radius:50%; flex-shrink:0; animation: modal-progress-spin 0.7s linear infinite;
+  }
+  @keyframes modal-progress-spin{ to{ transform:rotate(360deg); } }
   .modal-btn-row{ display:flex; gap:10px; margin-top:16px; }
   .modal-btn-row button{
     flex:1; padding:13px; border:none; border-radius:10px;
@@ -243,8 +264,13 @@
 </div>
 
 <div class="page-head">
-  <h1>Accounts</h1>
-  <div class="sub">Expenses and income for the selected month.</div>
+  <div class="page-head-top">
+    <div>
+      <h1>Accounts</h1>
+      <div class="sub">Expenses and income for the selected month.</div>
+    </div>
+    <a class="btn-deposits" href="deposits.html">Deposits</a>
+  </div>
 </div>
 
 <main>
@@ -295,6 +321,7 @@
   <div class="modal-sheet">
     <h3 id="modalTitle">Add Expense</h3>
     <div class="modal-error" id="modalError"></div>
+    <div class="modal-progress" id="modalProgress"><span class="modal-progress-spinner"></span><span id="modalProgressText">Connecting…</span></div>
 
     <div id="modalFields">
     <div class="field">
@@ -332,6 +359,7 @@
         <option value="personal">Personal</option>
         <option value="wages">Wages/Bike Purchase</option>
         <option value="transfer">To Transfer</option>
+        <option value="transferComplete">Transfer Complete</option>
       </select>
     </div>
     <div class="field" id="fExpenseBikeToggleField">
@@ -352,6 +380,18 @@
         <option value="Scan">Scan</option>
         <option value="Wise">Wise</option>
         <option value="Revolut">Revolut</option>
+      </select>
+    </div>
+    <div class="field" id="fPaidFromDepositToggleField" style="display:none;">
+      <label style="display:flex; align-items:center; gap:8px; text-transform:none; letter-spacing:normal; font-size:13.5px; font-weight:500; color:var(--ink);">
+        <input type="checkbox" id="fPaidFromDepositToggle" style="width:auto;">
+        Paid from an existing deposit
+      </label>
+    </div>
+    <div class="field" id="fPaidFromDepositField" style="display:none;">
+      <label for="fPaidFromDeposit">Which deposit</label>
+      <select id="fPaidFromDeposit">
+        <option value="">— Select —</option>
       </select>
     </div>
 
@@ -440,10 +480,12 @@ const EXPENSE_TYPE_COLORS = {
   business: null,
   personal: '#cfe2f3',
   wages: '#f6b26b',
-  transfer: '#fff2cc'
+  transfer: '#ffeb3b',
+  transferComplete: '#00e676'
 };
 const EXPENSE_TYPE_LABELS = {
-  business: 'Business', personal: 'Personal', wages: 'Wages/Bike Purchase', transfer: 'To Transfer'
+  business: 'Business', personal: 'Personal', wages: 'Wages/Bike Purchase',
+  transfer: 'To Transfer', transferComplete: 'Transfer Complete'
 };
 
 function renderExpenses(expenses) {
@@ -675,6 +717,77 @@ const fExpenseBikeToggle = document.getElementById('fExpenseBikeToggle');
 const fExpenseBikeToggleField = document.getElementById('fExpenseBikeToggleField');
 const fExpenseBikeSplitsField = document.getElementById('fExpenseBikeSplitsField');
 const bikeSplitRows = document.getElementById('bikeSplitRows');
+const fPaidFromDepositToggle = document.getElementById('fPaidFromDepositToggle');
+const fPaidFromDepositToggleField = document.getElementById('fPaidFromDepositToggleField');
+const fPaidFromDepositField = document.getElementById('fPaidFromDepositField');
+const fPaidFromDeposit = document.getElementById('fPaidFromDeposit');
+
+// Maps the Payment method dropdown's value to the matching deposit
+// category key used by action=deposits / consumeDeposit in Code.gs.
+// Cash (and blank) has no deposit table, so there's nothing to draw from.
+function depositCategoryForPaidBy(paidByVal) {
+  const v = (paidByVal || '').toString().trim().toLowerCase();
+  if (v === 'scan') return 'bank';
+  if (v === 'wise') return 'wise';
+  if (v === 'revolut') return 'revolut';
+  return null;
+}
+
+// Fetched fresh every time the "Paid from an existing deposit" checkbox is
+// ticked, rather than cached, so it reflects whatever's actually left in
+// the deposit tables right now (another staff member may have just spent
+// one). Add-Income only -- this feature doesn't apply to editing an
+// existing income entry or to expenses.
+async function populateDepositDropdown(categoryKey) {
+  fPaidFromDeposit.innerHTML = '<option value="">Loading…</option>';
+  fPaidFromDeposit.disabled = true;
+  try {
+    const res = await fetch(scriptUrl + '?action=deposits').then(r => r.json());
+    if (!res.success) {
+      fPaidFromDeposit.innerHTML = '<option value="">— Could not load deposits —</option>';
+      return;
+    }
+    const matches = (res.deposits || []).filter(d => d.category === categoryKey);
+    if (!matches.length) {
+      fPaidFromDeposit.innerHTML = '<option value="">— No deposits available —</option>';
+      return;
+    }
+    fPaidFromDeposit.innerHTML = '<option value="">— Select —</option>' +
+      matches.map(d => `<option value="${d.row}">${(d.name || '(no name)')} — ${money(d.amount)}</option>`).join('');
+  } catch (err) {
+    fPaidFromDeposit.innerHTML = '<option value="">— Could not load deposits —</option>';
+  } finally {
+    fPaidFromDeposit.disabled = false;
+  }
+}
+
+// Keeps the toggle+dropdown in sync with whatever payment method is
+// currently selected -- only Scan/Wise/Revolut have a deposit table to
+// draw from, and switching methods while the dropdown is open should
+// refresh it rather than leave a stale list from the previous method.
+function refreshPaidFromDepositUI() {
+  if (!paidFromDepositFeatureEnabled) {
+    fPaidFromDepositToggle.checked = false;
+    fPaidFromDepositToggleField.style.display = 'none';
+    fPaidFromDepositField.style.display = 'none';
+    return;
+  }
+  const category = depositCategoryForPaidBy(fPaidBy.value);
+  if (!category) {
+    fPaidFromDepositToggle.checked = false;
+    fPaidFromDepositToggleField.style.display = 'none';
+    fPaidFromDepositField.style.display = 'none';
+    fPaidFromDeposit.innerHTML = '<option value="">— Select —</option>';
+    return;
+  }
+  fPaidFromDepositToggleField.style.display = 'block';
+  if (fPaidFromDepositToggle.checked) {
+    fPaidFromDepositField.style.display = 'block';
+    populateDepositDropdown(category);
+  } else {
+    fPaidFromDepositField.style.display = 'none';
+  }
+}
 
 // Builds one "bike + amount" row for the split-expense UI, with its own
 // autocomplete (bikesNames) and a remove button. Used both when the user
@@ -740,6 +853,44 @@ function setModalError(msg) {
   modalError.classList.add('show');
 }
 
+// Lightweight "what's happening" indicator shown while a save/delete is
+// in flight. We don't get real progress events back from Apps Script, so
+// this fakes reasonable stages by time: show "Connecting…" immediately,
+// then flip to "Saving…" shortly after if the request is still pending.
+// stopSaveProgress() must be called (e.g. in a finally block) to hide it
+// and cancel the pending stage-change timer.
+const modalProgress = document.getElementById('modalProgress');
+const modalProgressText = document.getElementById('modalProgressText');
+let modalProgressTimer = null;
+function startSaveProgress() {
+  modalProgressText.textContent = 'Connecting…';
+  modalProgress.classList.add('show');
+  clearTimeout(modalProgressTimer);
+  modalProgressTimer = setTimeout(() => { modalProgressText.textContent = 'Saving…'; }, 500);
+}
+function stopSaveProgress() {
+  clearTimeout(modalProgressTimer);
+  modalProgress.classList.remove('show');
+}
+
+// While a save/delete is in flight, disable every button on the page --
+// not just the one clicked -- so a double-click (or clicking a different
+// button mid-save) can't fire off a second write and create a duplicate
+// entry. Only re-enables the buttons that were actually enabled before
+// the save started, so anything legitimately disabled for other reasons
+// stays disabled afterwards.
+function setAllButtonsDisabled(disabled) {
+  document.querySelectorAll('button').forEach(b => {
+    if (disabled) {
+      if (!b.disabled) b.dataset.reenableAfterSave = '1';
+      b.disabled = true;
+    } else if (b.dataset.reenableAfterSave) {
+      b.disabled = false;
+      delete b.dataset.reenableAfterSave;
+    }
+  });
+}
+
 // Selects the option matching rawValue, ignoring case/whitespace, so a
 // sheet cell like "cash" still preselects the "Cash" option. Leaves the
 // select on its blank default if nothing matches.
@@ -749,6 +900,13 @@ function setSelectValueCI(selectEl, rawValue) {
   const match = Array.from(selectEl.options).find(o => o.value.toLowerCase() === val.toLowerCase());
   selectEl.value = match ? match.value : '';
 }
+
+// Only true while the Add Income modal (never Edit Income, never either
+// expense mode) is open -- "paid from an existing deposit" only makes
+// sense when logging a brand-new income row, so the toggle/dropdown stay
+// hidden everywhere else regardless of what refreshPaidFromDepositUI's
+// own checks would otherwise allow.
+let paidFromDepositFeatureEnabled = false;
 
 function openModal(mode, isIncome, entry) {
   modalMode = mode;
@@ -763,11 +921,18 @@ function openModal(mode, isIncome, entry) {
   fExpenseTypeField.style.display = isIncome ? 'none' : 'block';
   fExpenseBikeToggleField.style.display = isIncome ? 'none' : 'block';
 
+  paidFromDepositFeatureEnabled = isIncome && !entry;
+  fPaidFromDepositToggle.checked = false;
+  fPaidFromDepositToggleField.style.display = 'none';
+  fPaidFromDepositField.style.display = 'none';
+  fPaidFromDeposit.innerHTML = '<option value="">— Select —</option>';
+
   if (isIncome) {
     modalTitle.textContent = entry ? 'Edit Income' : 'Add Income';
     fIncome.value = entry ? (entry.income || '') : '';
     fName.value = entry ? (entry.name || '') : '';
     setSelectValueCI(fPaidBy, entry ? entry.paidBy : '');
+    if (paidFromDepositFeatureEnabled) refreshPaidFromDepositUI();
   } else {
     modalTitle.textContent = entry ? 'Edit Expense' : 'Add Expense';
     fExpense.value = entry ? (entry.expense || '') : '';
@@ -819,6 +984,11 @@ fExpenseBikeToggle.addEventListener('change', () => {
     addBikeSplitRow('', fAmount.value || '');
   }
 });
+// Switching payment method while adding an income refreshes which deposit
+// category (if any) the checkbox below draws from; ticking/unticking the
+// checkbox itself shows/hides and (re)loads the dropdown.
+fPaidBy.addEventListener('change', () => { if (paidFromDepositFeatureEnabled) refreshPaidFromDepositUI(); });
+fPaidFromDepositToggle.addEventListener('change', refreshPaidFromDepositUI);
 // Close only on a genuine click on the backdrop itself -- NOT when the
 // mousedown started inside the modal (e.g. dragging to select text in an
 // amount field) and the drag happens to end with the mouse released over
@@ -895,15 +1065,16 @@ async function runPendingPayload() {
   if (!pendingPayload) return;
   const payload = pendingPayload;
   const isDelete = payload.action === 'deleteIncome' || payload.action === 'deleteExpense';
-  const busyBtn = isDelete ? modalDeleteBtn : modalSaveBtn;
 
-  busyBtn.disabled = true;
+  setAllButtonsDisabled(true);
   setModalError(null);
+  startSaveProgress();
   try {
     const res = await fetch(scriptUrl, {
       method: 'POST',
       body: JSON.stringify(payload)
     }).then(r => r.json());
+    stopSaveProgress();
 
     if (res.needsDisambiguation) {
       showCashDisambiguation(res.candidates, payload);
@@ -948,9 +1119,10 @@ async function runPendingPayload() {
       alert((isDelete ? 'Deleted, but: ' : 'Saved, but: ') + res.warning);
     }
   } catch (err) {
+    stopSaveProgress();
     setModalError((isDelete ? 'Delete failed: ' : 'Save failed: ') + err.message);
   } finally {
-    busyBtn.disabled = false;
+    setAllButtonsDisabled(false);
   }
 }
 
@@ -970,6 +1142,16 @@ modalSaveBtn.addEventListener('click', () => {
     payload.name = fName.value.trim();
     payload.paidBy = fPaidBy.value.trim();
     if (!payload.income) { setModalError('Please enter an income description.'); return; }
+
+    // Add-only: paidFromDepositFeatureEnabled is false whenever this is an
+    // edit, so an edit never sends these fields even if the checkbox
+    // somehow ended up checked.
+    if (paidFromDepositFeatureEnabled && fPaidFromDepositToggle.checked) {
+      if (!fPaidFromDeposit.value) { setModalError('Please select which deposit this was paid from.'); return; }
+      payload.paidFromDeposit = true;
+      payload.depositCategory = depositCategoryForPaidBy(fPaidBy.value);
+      payload.depositRow = Number(fPaidFromDeposit.value);
+    }
   } else {
     payload.expense = fExpense.value.trim();
     payload.payment = fExpensePayment.value;
