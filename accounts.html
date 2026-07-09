@@ -94,6 +94,31 @@
     .columns{ grid-template-columns:1fr; }
   }
 
+  /* Top summary strip: expense / income / profit / cash+deposits */
+  .summary-grid{
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));
+    gap:14px; margin-bottom:20px;
+  }
+  .summary-card{
+    background:var(--card); border:1px solid var(--line); border-radius:10px;
+    padding:14px 16px;
+  }
+  .summary-card h3{
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:13px;
+    letter-spacing:.05em; text-transform:uppercase; color:var(--petrol); margin:0 0 10px;
+  }
+  .summary-row{
+    display:flex; align-items:baseline; justify-content:space-between; gap:10px;
+    font-size:13px; padding:5px 0; border-bottom:1px solid #F0EBE0;
+  }
+  .summary-row:last-child{ border-bottom:none; }
+  .summary-row .sl{ color:var(--muted); }
+  .summary-row .sv{
+    font-family:'Barlow Condensed',sans-serif; font-weight:700; color:var(--ink);
+    white-space:nowrap;
+  }
+  .summary-row.total .sv{ color:var(--petrol); }
+
   .section h2{
     font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:18px;
     color:var(--petrol); margin:0 0 4px;
@@ -140,6 +165,8 @@
   }
   .btn-row button:active{ transform:scale(.98); }
   .btn-add{ background:var(--cone); color:#fff; }
+  .btn-complete-transfers{ background:#A5D6A7; color:#1B5E20; }
+  .btn-mark-business{ background:#E4E0D8; color:var(--petrol); }
 
   .row.clickable{ cursor:pointer; }
   .row.clickable:active{ transform:scale(.99); }
@@ -253,6 +280,7 @@
   <nav>
     <a href="index.html">Home</a>
     <a href="customers.html">Customer Record</a>
+    <a href="contract.html">Contract</a>
     <a href="pricing.html">Price Calculator</a>
     <a href="parts.html">Parts &amp; Oil</a>
     <a href="oilchange.html">Oil Change</a>
@@ -282,6 +310,8 @@
     <button id="nextMonthBtn" type="button" aria-label="Next month">›</button>
   </div>
 
+  <div class="summary-grid" id="summaryGrid"></div>
+
   <div class="columns">
     <div class="section" id="expensesSection">
       <h2>Expenses</h2>
@@ -296,6 +326,10 @@
       </div>
       <div class="btn-row">
         <button class="btn-add" id="addExpenseBtn">Add Expense</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn-complete-transfers" id="completeTransfersBtn" type="button">Complete Transfers</button>
+        <button class="btn-mark-business" id="markTransfersBusinessBtn" type="button">Transfer Completed</button>
       </div>
     </div>
 
@@ -545,6 +579,34 @@ function renderIncome(income) {
   document.getElementById('totalIncome').textContent = money(total);
 }
 
+// Renders the top-of-page summary strip (expenses / income / profit /
+// cash & deposits) from the fixed-cell figures Code.gs reads off this
+// month's sheet. Any item Code.gs couldn't locate comes back with
+// value: null and is shown as "—" rather than left off entirely, so a
+// sheet-layout drift is visible on the page instead of silently missing.
+function renderSummary(summary) {
+  const grid = document.getElementById('summaryGrid');
+  if (!summary) { grid.innerHTML = ''; return; }
+
+  function card(title, items, highlightTotal) {
+    const rows = (items || []).map(item => {
+      const isTotal = highlightTotal && /^total/i.test(item.label || '');
+      return `
+        <div class="summary-row${isTotal ? ' total' : ''}">
+          <span class="sl">${item.label}</span>
+          <span class="sv">${item.value === null || item.value === undefined || item.value === '' ? '—' : item.value}</span>
+        </div>`;
+    }).join('');
+    return `<div class="summary-card"><h3>${title}</h3>${rows}</div>`;
+  }
+
+  grid.innerHTML =
+    card('Expenses', summary.expense, true) +
+    card('Income', summary.income) +
+    card('Profit', summary.profit) +
+    card('Cash &amp; Deposits', summary.deposit, true);
+}
+
 let loadToken = 0;
 
 async function loadMonth(monthIndex) {
@@ -558,6 +620,7 @@ async function loadMonth(monthIndex) {
   document.getElementById('incomeList').innerHTML = '';
   document.getElementById('totalExpenses').textContent = '—';
   document.getElementById('totalIncome').textContent = '—';
+  document.getElementById('summaryGrid').innerHTML = '';
 
   try {
     const res = await fetch(scriptUrl + '?action=accounts&month=' + monthIndex).then(r => r.json());
@@ -567,9 +630,10 @@ async function loadMonth(monthIndex) {
       setLoadStatus(res.error || ('No sheet found for ' + MONTH_NAMES[monthIndex] + '.'), true);
       return;
     }
-    setLoadStatus(null);
+    setLoadStatus(res.warning || null, !!res.warning);
     renderExpenses(res.expenses || []);
     renderIncome(res.income || []);
+    renderSummary(res.summary || null);
   } catch (err) {
     if (myToken !== loadToken) return;
     setLoadStatus('Failed to load: ' + err.message, true);
@@ -585,6 +649,68 @@ document.getElementById('nextMonthBtn').addEventListener('click', () => {
   if (i < 11) loadMonth(i + 1);
 });
 monthSelect.addEventListener('change', () => loadMonth(Number(monthSelect.value)));
+
+// ---- "Complete Transfers" / "Transfer Completed" bulk-recolor buttons ----
+//
+// Both buttons work the same way: filter the already-loaded expense list
+// down to one type, ask for confirmation with every matching row spelled
+// out (date, description, amount) so nothing gets bulk-changed as a
+// surprise, then send exactly those row numbers to the server. The server
+// re-checks each row's current type before touching it (see
+// bulkSetExpenseType in Code.gs), so a row edited elsewhere in between is
+// skipped rather than blindly overwritten.
+async function bulkRecolorExpenses(fromType, toType) {
+  const matching = currentExpenses.filter(e => (e.type || 'business') === fromType);
+  if (!matching.length) {
+    alert('No expenses are currently marked "' + EXPENSE_TYPE_LABELS[fromType] + '".');
+    return;
+  }
+
+  const list = matching.map(e =>
+    '• ' + (e.date || '—') + '  —  ' + (e.expense || '(no description)') + '  —  ' + money(e.amount)
+  ).join('\n');
+
+  const ok = confirm(
+    'Are you sure you want to change all ' + matching.length + ' of these from "' +
+    EXPENSE_TYPE_LABELS[fromType] + '" to "' + EXPENSE_TYPE_LABELS[toType] + '"?\n\n' + list
+  );
+  if (!ok) return;
+
+  try {
+    const res = await fetch(scriptUrl, {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'bulkSetExpenseType',
+        monthIndex: Number(monthSelect.value),
+        rows: matching.map(e => e.row),
+        fromType: fromType,
+        toType: toType
+      })
+    }).then(r => r.json());
+
+    if (!res.success) {
+      alert('Failed to update: ' + res.error);
+      return;
+    }
+    if (res.warning) alert('Done, but: ' + res.warning);
+
+    // Patch just the rows that actually changed and re-render the list --
+    // same lightweight approach as an Add/Edit save (upsertLocalExpense),
+    // rather than a full reload from the sheet.
+    const changedRows = new Set(res.changedRows || []);
+    currentExpenses = currentExpenses.map(e => changedRows.has(e.row) ? { ...e, type: toType } : e);
+    renderExpenses(currentExpenses);
+  } catch (err) {
+    alert('Failed to update: ' + err.message);
+  }
+}
+
+document.getElementById('completeTransfersBtn').addEventListener('click', () => {
+  bulkRecolorExpenses('transfer', 'transferComplete');
+});
+document.getElementById('markTransfersBusinessBtn').addEventListener('click', () => {
+  bulkRecolorExpenses('transferComplete', 'business');
+});
 
 // Fetched once, up front -- feeds the "attach to bike" search field's
 // autocomplete list when adding/editing an expense. A failure here isn't

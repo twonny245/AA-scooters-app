@@ -99,6 +99,13 @@
   .cat-dot.wise{ background:#1A56B0; }
   .cat-dot.revolut{ background:#6B21A8; }
 
+  .cat-sheet-total{
+    display:flex; gap:14px; flex-wrap:wrap;
+    font-size:11.5px; color:var(--muted); margin:-4px 0 12px;
+  }
+  .cat-sheet-total span{ white-space:nowrap; }
+  .cat-sheet-total b{ color:var(--ink); font-weight:600; }
+
   .row{
     background:var(--card); border:1px solid var(--line); border-radius:9px;
     padding:10px 12px; margin-bottom:8px; font-size:13.5px;
@@ -180,6 +187,7 @@
   <nav>
     <a href="index.html">Home</a>
     <a href="customers.html">Customer Record</a>
+    <a href="contract.html">Contract</a>
     <a href="pricing.html">Price Calculator</a>
     <a href="parts.html">Parts &amp; Oil</a>
     <a href="oilchange.html">Oil Change</a>
@@ -310,14 +318,20 @@ async function loadDeposits() {
     setLoadStatus(null);
   }
 
-  render(res.deposits || []);
+  render(res.deposits || [], res.summary || {});
 }
 
 // Kept around (keyed by "category|row") so a row click can look up its
 // full entry without re-parsing the DOM -- used to prefill the edit modal.
 let allDeposits = [];
 
-function render(deposits) {
+// `summary` is the sheet's own total figures per category (see
+// getDepositsData/ACCOUNTS_SUMMARY-style reads in Code.gs) -- O15/P15 for
+// Bank, R15/S15 + R16/S16 for Wise, V15/W15 + V16/W16 for Revolut. Shown
+// alongside the client-computed cat-total (sum of the visible rows above)
+// rather than replacing it, since the sheet's own total can include
+// history the visible list doesn't (or vice versa if something's off).
+function render(deposits, summary) {
   allDeposits = deposits;
   const container = document.getElementById('depositsByCategory');
 
@@ -336,12 +350,22 @@ function render(deposits) {
       `).join('')
       : '<div class="empty-hint">No ' + cat.label.toLowerCase() + ' deposits found.</div>';
 
+    const catSummary = (summary && summary[cat.key]) || {};
+    const sheetTotalHtml = [];
+    if (catSummary.total && catSummary.total.value !== null && catSummary.total.value !== undefined) {
+      sheetTotalHtml.push(`<span>${catSummary.total.label}: <b>${catSummary.total.value}</b></span>`);
+    }
+    if (catSummary.runningTotal && catSummary.runningTotal.value !== null && catSummary.runningTotal.value !== undefined) {
+      sheetTotalHtml.push(`<span>${catSummary.runningTotal.label}: <b>${catSummary.runningTotal.value}</b></span>`);
+    }
+
     return `
       <div class="cat-section">
         <div class="cat-head">
           <h2><span class="cat-dot ${cat.key}"></span>${cat.label}</h2>
           <div class="cat-total">${money(total)}</div>
         </div>
+        ${sheetTotalHtml.length ? `<div class="cat-sheet-total">${sheetTotalHtml.join('')}</div>` : ''}
         ${rowsHtml}
       </div>
     `;

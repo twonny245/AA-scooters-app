@@ -182,6 +182,7 @@
   <nav>
     <a href="index.html">Home</a>
     <a href="customers.html">Customer Record</a>
+    <a href="contract.html">Contract</a>
     <a href="pricing.html">Price Calculator</a>
     <a href="parts.html">Parts &amp; Oil</a>
     <a href="oilchange.html" class="active">Oil Change</a>
@@ -655,7 +656,7 @@ document.addEventListener('click', (e) => {
 // Prescripted message — {{nextOil}} is swapped in per record from that
 // bike's "Next oil change" figure ({{name}} / {{bike}} are also available
 // if a future wording needs them).
-const CONTACT_MESSAGE_TEMPLATE = `Hey, just a heads-up—the bike's been with you for a while, so I need a quick check. Could you send me a screenshot of the speedometer reading? I'm expecting the next oil change to be around {{nextOil}} km. Once I confirm, I'll get the oil change arranged ASAP. Thanks a lot!`;
+const CONTACT_MESSAGE_TEMPLATE = `Hey, just a heads-up—the bike's been with you for a while, so I need a quick check. Could you send me a screenshot of the speedometer reading? I'm expecting the next oil change to be around {{nextOil}} km. Once I receive this, I'll get the oil change arranged ASAP if needed. Thanks a lot!`;
 
 function escJs(s) {
   return encodeURIComponent(s || '');

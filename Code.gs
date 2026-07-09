@@ -201,6 +201,12 @@ function doPost(e) {
     if (data.action === 'addDeposit') {
       return addDepositEntry(data);
     }
+    if (data.action === 'bulkSetExpenseType') {
+      return bulkSetExpenseType(data);
+    }
+    if (data.action === 'addContract') {
+      return addContractEntry(data);
+    }
 
     // ---- Customer-intake behavior ----
     var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -375,6 +381,83 @@ function doPost(e) {
       .createTextOutput(JSON.stringify(responsePayload))
       .setMimeType(ContentService.MimeType.JSON);
 
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: false, error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+// ---- action:'addContract' -- appends a new row to the "Contract" sheet
+// (the printable-contract tab that contract.html fills in, separate from
+// the "customer" accounting sheet the Customer Record page writes to).
+// Columns: A Date, B How to contact us, C Number, D Name, E Nationality,
+// F Passport Number, G Bike model, H Renting date from, I Return date,
+// J Return time, K Deliver to hotel, L total price, M Paid by, N Deposit
+// (Scan/Cash/Wise/Passport), O Deposit amount (blank when Deposit is
+// "Passport" -- nothing but the passport itself is held in that case),
+// P status (left blank here -- populated automatically elsewhere, which
+// is why contract.html never shows a status field at all). ----
+function addContractEntry(data) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName('Contract');
+    if (!sheet) {
+      throw new Error('Sheet named "Contract" not found in this spreadsheet.');
+    }
+
+    var depositMethod = (data.deposit || '').toString().trim();
+    var depositNeedsAmount = depositMethod !== '' && depositMethod.toLowerCase() !== 'passport';
+    var depositAmount = depositNeedsAmount ? (data.depositAmount || '') : '';
+
+    sheet.appendRow([
+      Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'dd/MM/yyyy'),
+      data.contact || '',
+      data.number || '',
+      data.name || '',
+      data.nationality || '',
+      data.passport || '',
+      data.bikeModel || '',
+      formatIsoDateToDMY(data.rentingDateFrom),
+      formatIsoDateToDMY(data.returnDate),
+      data.returnTime || '',
+      data.deliverToHotel || '',
+      data.totalPrice || '',
+      data.paidBy || '',
+      depositMethod,
+      depositAmount,
+      ''
+    ]);
+
+    var newRow = sheet.getLastRow();
+    var newRange = sheet.getRange(newRow, 1, 1, 16);
+    newRange.setBorder(true, true, true, true, true, true);
+
+    // Register the key cells of the new contract row for post-write
+    // verification (re-read + compared just before responding).
+    verifyCell('Contract', newRow, 2, data.contact || '', 'contract row: how to contact us');
+    verifyCell('Contract', newRow, 3, data.number || '', 'contract row: number');
+    verifyCell('Contract', newRow, 4, data.name || '', 'contract row: name');
+    verifyCell('Contract', newRow, 5, data.nationality || '', 'contract row: nationality');
+    verifyCell('Contract', newRow, 6, data.passport || '', 'contract row: passport number');
+    verifyCell('Contract', newRow, 7, data.bikeModel || '', 'contract row: bike model');
+    verifyCell('Contract', newRow, 8, formatIsoDateToDMY(data.rentingDateFrom), 'contract row: renting-from date');
+    verifyCell('Contract', newRow, 9, formatIsoDateToDMY(data.returnDate), 'contract row: return date');
+    verifyCell('Contract', newRow, 12, data.totalPrice || '', 'contract row: total price');
+    verifyCell('Contract', newRow, 13, data.paidBy || '', 'contract row: paid by');
+    verifyCell('Contract', newRow, 14, depositMethod, 'contract row: deposit');
+    verifyCell('Contract', newRow, 15, depositAmount, 'contract row: deposit amount');
+
+    var verification = runWriteVerification(ss);
+    var warnings = verification.problems;
+    var responsePayload = { success: true, row: newRow };
+    responsePayload.checksPassed = verification.checked - verification.failed;
+    responsePayload.checksTotal = verification.checked;
+    if (warnings.length) responsePayload.warning = warnings.join(' ');
+
+    return ContentService
+      .createTextOutput(JSON.stringify(responsePayload))
+      .setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return ContentService
       .createTextOutput(JSON.stringify({ success: false, error: err.message }))
@@ -1515,6 +1598,9 @@ function doGet(e) {
     if (e.parameter.action === 'bikesList') {
       return getBikesListNames();
     }
+    if (e.parameter.action === 'contracts') {
+      return getContractRows();
+    }
 
     // ---- Customer-search behavior ----
     var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -1552,6 +1638,51 @@ function doGet(e) {
       .createTextOutput(JSON.stringify({ success: true, rows: rows }))
       .setMimeType(ContentService.MimeType.JSON);
 
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: false, error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+// ---- Serve the "Contract" tab for contract.html's search view. Column
+// order matches addContractEntry's writer above. ----
+function getContractRows() {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName('Contract');
+    if (!sheet) {
+      throw new Error('Sheet named "Contract" not found in this spreadsheet.');
+    }
+
+    var values = sheet.getDataRange().getValues();
+    var keys = ['date','contact','number','name','nationality','passport','bikeModel',
+                'rentingDateFrom','returnDate','returnTime','deliverToHotel',
+                'totalPrice','paidBy','deposit','depositAmount','status'];
+    var tz = ss.getSpreadsheetTimeZone();
+
+    function cellToString(key, val) {
+      if (val instanceof Date) {
+        if (key === 'returnTime') {
+          return Utilities.formatDate(val, tz, 'HH:mm');
+        }
+        return Utilities.formatDate(val, tz, 'dd/MM/yyyy');
+      }
+      return val !== undefined && val !== null ? String(val) : '';
+    }
+
+    var rows = values.slice(HEADER_ROWS).map(function(row, i) {
+      var obj = {};
+      keys.forEach(function(k, ki) {
+        obj[k] = cellToString(k, row[ki]);
+      });
+      obj.rowNumber = HEADER_ROWS + i + 1; // 1-indexed sheet row this record lives on
+      return obj;
+    }).filter(function(r) { return r.name !== ''; });
+
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: true, rows: rows }))
+      .setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return ContentService
       .createTextOutput(JSON.stringify({ success: false, error: err.message }))
@@ -1670,6 +1801,67 @@ var DEPOSIT_CATEGORIES = [
   { key: 'revolut', label: 'Revolut', header: 'deposit revolut', dateCol: 22, amountCol: 23, nameCol: 24 } // V, W, X
 ];
 
+// ---- Fixed-cell summary figures shown at the top of the Accounts page --
+// confirmed against a screenshot of the "July" sheet with Anton on
+// 2026-07-09. "row" is where the label is EXPECTED to be; readAccountsSummaryItem
+// below re-validates the label there and, if it's drifted, searches the
+// whole column for it (via findDepositRow, the same self-healing lookup
+// already used for the Wise/Revolut deposit cells) before giving up and
+// warning instead of silently showing the wrong figure. expectedLabel is
+// matched case/whitespace-insensitively against the sheet's own (sometimes
+// misspelled -- "bussiness", "invesment", "busniness") text; displayLabel
+// is the clean text actually shown in the UI.
+var ACCOUNTS_SUMMARY_ITEMS = {
+  // B/C, starting row 146.
+  expense: [
+    { row: 146, labelCol: 2, valueCol: 3, expectedLabel: 'total expenses', displayLabel: 'Total expenses' },
+    { row: 147, labelCol: 2, valueCol: 3, expectedLabel: 'bussiness expenses', displayLabel: 'Business expenses' },
+    { row: 148, labelCol: 2, valueCol: 3, expectedLabel: 'personal expenses total', displayLabel: 'Personal expenses' },
+    { row: 149, labelCol: 2, valueCol: 3, expectedLabel: 'wages and bike purchase', displayLabel: 'Wages & bike purchases' }
+  ],
+  // G/I, starting row 146 -- column H is a blank spacer, deliberately skipped.
+  income: [
+    { row: 146, labelCol: 7, valueCol: 9, expectedLabel: 'income for month', displayLabel: 'Income' },
+    { row: 147, labelCol: 7, valueCol: 9, expectedLabel: 'income less invesment', displayLabel: 'Income (less investment)' },
+    { row: 148, labelCol: 7, valueCol: 9, expectedLabel: '% of bussiness expenses vs income', displayLabel: 'Business exp. % of income' },
+    { row: 149, labelCol: 7, valueCol: 9, expectedLabel: '% of total busniness and personal vs income', displayLabel: 'Total exp. % of income' }
+  ],
+  // J/K, starting row 147 (row 146 is blank here, unlike the two blocks above).
+  profit: [
+    { row: 147, labelCol: 10, valueCol: 11, expectedLabel: 'net profit', displayLabel: 'Net profit' },
+    { row: 148, labelCol: 10, valueCol: 11, expectedLabel: 'actual profit', displayLabel: 'Actual profit' }
+  ],
+  // L/M -- specific fixed rows (not a contiguous block), same cells
+  // processDepositForPayment already writes the Wise/Revolut running
+  // totals into (L11/M11, L12/M12).
+  deposit: [
+    { row: 3,  labelCol: 12, valueCol: 13, expectedLabel: 'cash', displayLabel: 'Cash' },
+    { row: 6,  labelCol: 12, valueCol: 13, expectedLabel: 'bank', displayLabel: 'Bank' },
+    { row: 11, labelCol: 12, valueCol: 13, expectedLabel: 'wise(less deposit)', displayLabel: 'Wise (less deposit)' },
+    { row: 12, labelCol: 12, valueCol: 13, expectedLabel: 'revolut(less deposit)', displayLabel: 'Revolut (less deposit)' },
+    { row: 9,  labelCol: 12, valueCol: 13, expectedLabel: 'total (cash + bank+wise)', displayLabel: 'Total (cash + bank + wise)' }
+  ]
+};
+
+// ---- Reads one summary figure for the Accounts page top strip. Re-locates
+// the label via findDepositRow (checks the expected row first, then
+// searches the whole column) before reading the value next to it, so a
+// row shifting up/down a bit doesn't silently show the wrong number. Value
+// is read with getDisplayValue() so it comes back exactly as formatted on
+// the sheet (currency symbol, %, etc.) -- no reformatting needed
+// client-side. Pushes a message onto `warnings` and returns value: null if
+// the label can't be found anywhere in the column. ----
+function readAccountsSummaryItem(sheet, item, warnings) {
+  var row = findDepositRow(sheet, item.row, item.labelCol, item.expectedLabel);
+  if (row === null) {
+    warnings.push('Could not find "' + item.expectedLabel + '" in column ' + columnToLetter(item.labelCol) +
+      ' of "' + sheet.getName() + '" (expected near row ' + item.row + ') -- "' + item.displayLabel + '" is not shown.');
+    return { label: item.displayLabel, value: null };
+  }
+  var value = sheet.getRange(row, item.valueCol).getDisplayValue().toString().trim();
+  return { label: item.displayLabel, value: value };
+}
+
 // ---- Plain Levenshtein edit distance, used only to tolerate typos in a
 // month tab's name (e.g. "Feburary" should still resolve to February). ----
 function levenshteinDistance(a, b) {
@@ -1751,8 +1943,19 @@ var EXPENSE_TYPE_COLORS = {
 // to Business (no fill), so a row is never left with a stray color from a
 // previous classification if the new save doesn't specify one. ----
 function applyExpenseTypeColor(sheet, row, type) {
-  var key = (type || 'business').toString().trim().toLowerCase();
-  var color = EXPENSE_TYPE_COLORS.hasOwnProperty(key) ? EXPENSE_TYPE_COLORS[key] : null;
+  var raw = (type || 'business').toString().trim();
+  // Case-INSENSITIVE match against EXPENSE_TYPE_COLORS' keys, but looked up
+  // using the correctly-cased key that was actually found -- NOT
+  // raw.toLowerCase() itself. EXPENSE_TYPE_COLORS has a camelCase key
+  // ('transferComplete'); naively lowercasing the input before the object
+  // lookup turns it into 'transfercomplete', which doesn't match that key,
+  // so it silently fell through to the null/no-color (Business-looking)
+  // fallback every time -- "Transfer Complete" could never actually be set,
+  // from either this button or the Edit Expense dropdown.
+  var matchedKey = Object.keys(EXPENSE_TYPE_COLORS).filter(function(k) {
+    return k.toLowerCase() === raw.toLowerCase();
+  })[0];
+  var color = matchedKey ? EXPENSE_TYPE_COLORS[matchedKey] : null;
   sheet.getRange(row, 2).setBackground(color);
 }
 
@@ -1775,6 +1978,67 @@ function expenseTypeFromColor(hex) {
     if (colorVal && h === colorVal) return key;
   }
   return 'business';
+}
+
+// ---- action:'bulkSetExpenseType' -- Accounts page, the "Complete
+// Transfers" (To Transfer -> Transfer Complete) and "Transfer Completed"
+// (Transfer Complete -> Business) buttons at the bottom of the Expenses
+// list. data: { monthIndex, rows: [sheet row numbers], fromType, toType }.
+//
+// The rows list comes from whatever the page had already loaded and shown
+// to Anton in the confirmation dialog -- but rather than trusting that
+// list blindly, each row's CURRENT color is re-read fresh here and only
+// recolored if it still matches fromType. Anything that's since changed
+// (edited elsewhere, or the page was stale) is skipped and reported back
+// as a warning instead of being silently overwritten -- same "don't
+// silently do the wrong thing" rule the rest of this file follows. ----
+function bulkSetExpenseType(data) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var monthIndex = Math.max(0, Math.min(11, Math.round(Number(data.monthIndex))));
+    var targetMonthName = ACCOUNTS_MONTH_NAMES[monthIndex];
+    var sheet = findMonthSheetFuzzy(ss, targetMonthName);
+    if (!sheet) {
+      throw new Error('No sheet found matching "' + targetMonthName + '".');
+    }
+
+    var fromType = (data.fromType || '').toString().trim();
+    var toType = (data.toType || '').toString().trim();
+    if (!EXPENSE_TYPE_COLORS.hasOwnProperty(fromType) || !EXPENSE_TYPE_COLORS.hasOwnProperty(toType)) {
+      throw new Error('Unrecognized expense type -- nothing was changed.');
+    }
+
+    var rows = Array.isArray(data.rows) ? data.rows : [];
+    var changed = [];
+    var skipped = [];
+
+    rows.forEach(function(rawRow) {
+      var row = parseInt(rawRow, 10);
+      if (!row || row < 2) { skipped.push(rawRow); return; }
+      var currentColor = sheet.getRange(row, 2).getBackground();
+      var currentType = expenseTypeFromColor(currentColor);
+      if (currentType !== fromType) {
+        skipped.push(row);
+        return;
+      }
+      applyExpenseTypeColor(sheet, row, toType);
+      changed.push(row);
+    });
+
+    var responsePayload = { success: true, changed: changed.length, changedRows: changed, skippedRows: skipped };
+    if (skipped.length) {
+      responsePayload.warning = skipped.length + ' row(s) were skipped because their type had already changed since the list was loaded -- please refresh and try again if needed.';
+    }
+
+    return ContentService
+      .createTextOutput(JSON.stringify(responsePayload))
+      .setMimeType(ContentService.MimeType.JSON);
+
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: false, error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
 }
 
 // ---- Optional "which bike(s) is this expense split across" link, stored
@@ -2043,15 +2307,30 @@ function getAccountsData(monthIndexRaw) {
       }
     }
 
+    // Top-of-page summary strip: expense/income/profit/deposit figures read
+    // straight from their fixed cells on this same month sheet -- see
+    // ACCOUNTS_SUMMARY_ITEMS above for exactly which cells and why.
+    var summaryWarnings = [];
+    var summary = {
+      expense: ACCOUNTS_SUMMARY_ITEMS.expense.map(function(item) { return readAccountsSummaryItem(sheet, item, summaryWarnings); }),
+      income: ACCOUNTS_SUMMARY_ITEMS.income.map(function(item) { return readAccountsSummaryItem(sheet, item, summaryWarnings); }),
+      profit: ACCOUNTS_SUMMARY_ITEMS.profit.map(function(item) { return readAccountsSummaryItem(sheet, item, summaryWarnings); }),
+      deposit: ACCOUNTS_SUMMARY_ITEMS.deposit.map(function(item) { return readAccountsSummaryItem(sheet, item, summaryWarnings); })
+    };
+
+    var responsePayload = {
+      success: true,
+      monthIndex: monthIndex,
+      month: targetMonthName,
+      sheetName: sheet.getName(),
+      expenses: expenses,
+      income: income,
+      summary: summary
+    };
+    if (summaryWarnings.length) responsePayload.warning = summaryWarnings.join(' ');
+
     return ContentService
-      .createTextOutput(JSON.stringify({
-        success: true,
-        monthIndex: monthIndex,
-        month: targetMonthName,
-        sheetName: sheet.getName(),
-        expenses: expenses,
-        income: income
-      }))
+      .createTextOutput(JSON.stringify(responsePayload))
       .setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {
@@ -2151,6 +2430,48 @@ function getDepositsData() {
       deposits = deposits.concat(rowsFound);
     });
 
+    // Category totals shown at the top of the Deposits page -- row 15 (in
+    // the same date/amount columns as the category's own list above, via
+    // DEPOSIT_CATEGORIES) holds each category's own "total" of the visible
+    // list; Wise and Revolut additionally have a running "total wise" /
+    // "total revolut" figure right underneath at row 16 (Bank/Scan has no
+    // second figure there). Labels are re-checked against what's actually
+    // in the cell before trusting the value next to it, same "don't
+    // silently read the wrong cell" rule used everywhere else in this file.
+    var summary = {};
+    DEPOSIT_CATEGORIES.forEach(function(cat) {
+      var entry = {};
+      var totalRow = 15;
+      var totalLabelRaw = sheet.getRange(totalRow, cat.dateCol).getValue();
+      if (norm(totalLabelRaw).indexOf('total') === 0) {
+        entry.total = {
+          label: cellToString(totalLabelRaw),
+          value: sheet.getRange(totalRow, cat.amountCol).getDisplayValue().toString().trim()
+        };
+      } else {
+        warnings.push('"' + sheet.getName() + '" sheet: expected a "total" label at ' +
+          columnToLetter(cat.dateCol) + totalRow + ' for ' + cat.label + ' but found "' +
+          (totalLabelRaw || '(blank)') + '" -- ' + cat.label + ' total not shown.');
+      }
+
+      if (cat.key !== 'bank') {
+        var rtRow = 16;
+        var rtLabelRaw = sheet.getRange(rtRow, cat.dateCol).getValue();
+        if (norm(rtLabelRaw).indexOf('total') === 0) {
+          entry.runningTotal = {
+            label: cellToString(rtLabelRaw),
+            value: sheet.getRange(rtRow, cat.amountCol).getDisplayValue().toString().trim()
+          };
+        } else {
+          warnings.push('"' + sheet.getName() + '" sheet: expected a running-total label at ' +
+            columnToLetter(cat.dateCol) + rtRow + ' for ' + cat.label + ' but found "' +
+            (rtLabelRaw || '(blank)') + '" -- ' + cat.label + ' running total not shown.');
+        }
+      }
+
+      summary[cat.key] = entry;
+    });
+
     return ContentService
       .createTextOutput(JSON.stringify({
         success: true,
@@ -2158,6 +2479,7 @@ function getDepositsData() {
         month: monthName,
         sheetName: sheet.getName(),
         deposits: deposits,
+        summary: summary,
         warnings: warnings
       }))
       .setMimeType(ContentService.MimeType.JSON);

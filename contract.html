@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Customer Record — Intake</title>
+<title>Contract — Intake</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -124,25 +124,6 @@
     margin:14px 0 5px;
   }
   label:first-of-type{margin-top:0;}
-  .deal-row{
-    display:flex;
-    align-items:center;
-    gap:8px;
-    margin-top:14px;
-  }
-  .deal-row input[type="checkbox"]{
-    width:18px;
-    height:18px;
-    accent-color:var(--petrol);
-    cursor:pointer;
-  }
-  .deal-row label{
-    margin:0;
-    font-size:13.5px;
-    font-weight:600;
-    color:var(--ink);
-    cursor:pointer;
-  }
   input, select{
     width:100%;
     padding:11px 12px;
@@ -158,11 +139,6 @@
     outline:none;
     border-color:var(--petrol-light);
     background:#fff;
-  }
-  input:disabled, select:disabled{
-    background:#EEE9DE;
-    color:#A6ADA9;
-    cursor:not-allowed;
   }
   .row2{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
   .row2 > div{min-width:0;}
@@ -200,12 +176,6 @@
     border-radius:50%; flex-shrink:0; animation: status-spin 0.7s linear infinite;
   }
   @keyframes status-spin{ to{ transform:rotate(360deg); } }
-  .setup{
-    background:#FBF6EC;
-    border:1px dashed var(--line);
-  }
-  .setup p{font-size:13px; color:#5A6663; margin:0 0 10px; line-height:1.5;}
-  .setup a{color:var(--petrol);}
   .odo{
     display:flex; align-items:center; justify-content:space-between;
     font-family:'Barlow Condensed',sans-serif;
@@ -214,11 +184,6 @@
   }
   .odo b{color:var(--petrol); font-size:14px;}
   .hidden{display:none;}
-  .link-btn{
-    background:none; border:none; color:var(--petrol); text-decoration:underline;
-    font-family:'Inter',sans-serif; font-size:12.5px; font-weight:500; text-transform:none;
-    letter-spacing:0; padding:0; margin-top:8px; width:auto;
-  }
 
   .tabs{
     display:flex; gap:8px;
@@ -279,7 +244,7 @@
   }
   /* ---- Page gate: hide the tabs + form until the bikes list has
      loaded from the spreadsheet, so nobody can start typing an entry
-     before the bike autocomplete (and plate data) is ready. ---- */
+     before the bike autocomplete is ready. ---- */
   body:not(.bikes-ready) .tabs,
   body:not(.bikes-ready) main{ display:none; }
   .page-gate{
@@ -325,8 +290,8 @@
   </a>
   <nav>
     <a href="index.html">Home</a>
-    <a href="customers.html" class="active">Customer Record</a>
-    <a href="contract.html">Contract</a>
+    <a href="customers.html">Customer Record</a>
+    <a href="contract.html" class="active">Contract</a>
     <a href="pricing.html">Price Calculator</a>
     <a href="parts.html">Parts &amp; Oil</a>
     <a href="oilchange.html">Oil Change</a>
@@ -338,8 +303,8 @@
 </div>
 
 <div class="page-head">
-  <h1>Customer Record</h1>
-  <div class="sub">Adds a row straight into the "customer" tab</div>
+  <h1>Contract</h1>
+  <div class="sub">Adds a row straight into the "Contract" tab</div>
 </div>
 
 <!-- Shown INSTEAD of the tabs + form until the bikes list has loaded
@@ -377,7 +342,10 @@
       <label for="passport">Passport number</label>
       <input id="passport" placeholder="Optional">
 
-      <label for="contact">How to contact them</label>
+      <label for="number">Number</label>
+      <input id="number" type="tel" placeholder="e.g. 081 234 5678">
+
+      <label for="contact">How to contact us</label>
       <select id="contact">
         <option value=""></option>
         <option value="WhatsApp">WhatsApp</option>
@@ -442,37 +410,17 @@
           </select>
         </div>
       </div>
-      <div class="deal-row">
-        <input type="checkbox" id="dealCheckbox">
-        <label for="dealCheckbox">Deal</label>
-      </div>
-      <div id="depositSection">
-        <div class="deal-row">
-          <input type="checkbox" id="depositCheckbox">
-          <label for="depositCheckbox">Deposit</label>
-        </div>
-        <select id="depositMethod" disabled style="margin-top:8px;">
-          <option value="">Select deposit method</option>
-          <option value="Cash">Cash</option>
-          <option value="Scan">Scan</option>
-          <option value="Wise">Wise</option>
-          <option value="Revolut">Revolut</option>
-          <option value="Passport">Passport</option>
-        </select>
-        <input id="depositAmount" type="number" min="0" step="1" placeholder="Deposit amount (฿)" class="hidden" style="margin-top:8px;">
-      </div>
-      <div class="load-status" id="depositSkipNote" style="margin-top:8px;">No deposit needed — this is a rental extension, not a new rental.</div>
-      <div id="paidFromDepositSection" class="hidden" style="margin-top:8px;">
-        <div class="deal-row">
-          <input type="checkbox" id="paidFromDepositCheckbox">
-          <label for="paidFromDepositCheckbox">Paid from an existing deposit</label>
-        </div>
-        <select id="paidFromDepositSelect" disabled style="margin-top:8px;">
-          <option value="">— Select —</option>
-        </select>
-      </div>
-    </div>
 
+      <label for="deposit">Deposit</label>
+      <select id="deposit">
+        <option value=""></option>
+        <option value="Scan">Scan</option>
+        <option value="Cash">Cash</option>
+        <option value="Wise">Wise</option>
+        <option value="Passport">Passport</option>
+      </select>
+      <input id="depositAmount" type="number" min="0" step="1" placeholder="Deposit amount (฿)" class="hidden" style="margin-top:8px;">
+    </div>
 
     <button type="submit" id="submitBtn">Add to sheet</button>
     <div class="status" id="statusBox"></div>
@@ -480,7 +428,7 @@
 
   <div id="searchView" class="hidden">
     <div class="card">
-      <h2>Find a record</h2>
+      <h2>Find a contract</h2>
       <div class="load-status" id="loadStatus">Loading records…</div>
 
       <label for="s_name">Name</label>
@@ -499,6 +447,12 @@
       <div class="field">
         <input id="s_passport" data-key="passport" autocomplete="off" placeholder="Start typing…">
         <div class="ac-list" data-for="s_passport"></div>
+      </div>
+
+      <label for="s_number">Number</label>
+      <div class="field">
+        <input id="s_number" data-key="number" autocomplete="off" placeholder="Start typing…">
+        <div class="ac-list" data-for="s_number"></div>
       </div>
 
       <label for="s_contact">Contact method</label>
@@ -590,9 +544,8 @@ function stopSaveProgress() {
 
 // While a save is in flight, disable every button on the page -- not just
 // the submit button -- so a double-click (or hitting some other button
-// mid-save) can't fire off a second write and create a duplicate customer
-// record. Only re-enables the buttons that were actually enabled before
-// the save started.
+// mid-save) can't fire off a second write and create a duplicate contract
+// row.
 function setAllButtonsDisabled(disabled) {
   document.querySelectorAll('button').forEach(b => {
     if (disabled) {
@@ -603,106 +556,6 @@ function setAllButtonsDisabled(disabled) {
       delete b.dataset.reenableAfterSave;
     }
   });
-}
-
-// Tracks whether the entry currently in the form is a normal walk-in add
-// ("direct") or was auto-populated by the "Extend" flow on Bikes Status
-// ("extend"). Sent to the backend so the monthly/cash sheet rows read
-// "<bike> extend N days" instead of "<bike> rent N days", and so the
-// security deposit section (never applicable to an extension) stays out
-// of the way. Resets back to "direct" after each successful save, since
-// only the row the redirect prefilled should be marked as an extension.
-let entrySource = 'direct';
-
-function setDepositSectionVisible(visible) {
-  const section = document.getElementById('depositSection');
-  const note = document.getElementById('depositSkipNote');
-  if (visible) {
-    section.classList.remove('hidden');
-    note.classList.remove('show');
-  } else {
-    depositCheckbox.checked = false;
-    depositMethod.disabled = true;
-    depositMethod.value = '';
-    depositAmount.classList.add('hidden');
-    depositAmount.required = false;
-    depositAmount.value = '';
-    section.classList.add('hidden');
-    note.classList.add('show');
-  }
-}
-
-// ---- "Paid from an existing deposit" -- the inverse of the security
-// deposit section above: only relevant when this form was prefilled by
-// the long-Extend flow (entrySource === 'extend'), since only an
-// extension has a prior deposit to draw from. A brand-new walk-in
-// customer never sees this at all. ----
-function money(n) {
-  if (n === '' || n === null || n === undefined || isNaN(Number(n))) return '—';
-  const num = Number(n);
-  const sign = num < 0 ? '-' : '';
-  return sign + '฿' + Math.abs(num).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-function depositCategoryForPaidBy(paidByVal) {
-  const v = (paidByVal || '').toString().trim().toLowerCase();
-  if (v === 'scan') return 'bank';
-  if (v === 'wise') return 'wise';
-  if (v === 'revolut') return 'revolut';
-  return null;
-}
-async function populatePaidFromDepositSelect(categoryKey) {
-  paidFromDepositSelect.innerHTML = '<option value="">Loading…</option>';
-  paidFromDepositSelect.disabled = true;
-  try {
-    const res = await fetch(scriptUrl + '?action=deposits').then(r => r.json());
-    if (!res.success) {
-      paidFromDepositSelect.innerHTML = '<option value="">— Could not load deposits —</option>';
-      return;
-    }
-    const matches = (res.deposits || []).filter(d => d.category === categoryKey);
-    if (!matches.length) {
-      paidFromDepositSelect.innerHTML = '<option value="">— No deposits available —</option>';
-      return;
-    }
-    paidFromDepositSelect.innerHTML = '<option value="">— Select —</option>' +
-      matches.map(d => `<option value="${d.row}">${(d.name || '(no name)')} — ${money(d.amount)}</option>`).join('');
-  } catch (err) {
-    paidFromDepositSelect.innerHTML = '<option value="">— Could not load deposits —</option>';
-  } finally {
-    paidFromDepositSelect.disabled = false;
-  }
-}
-function refreshPaidFromDepositUI() {
-  if (entrySource !== 'extend') {
-    paidFromDepositCheckbox.checked = false;
-    paidFromDepositSection.classList.add('hidden');
-    paidFromDepositSelect.disabled = true;
-    return;
-  }
-  paidFromDepositSection.classList.remove('hidden');
-  const category = depositCategoryForPaidBy(document.getElementById('paidBy').value);
-  if (!category) {
-    paidFromDepositCheckbox.checked = false;
-    paidFromDepositSelect.disabled = true;
-    paidFromDepositSelect.innerHTML = '<option value="">— Select —</option>';
-    return;
-  }
-  if (paidFromDepositCheckbox.checked) {
-    paidFromDepositSelect.disabled = false;
-    populatePaidFromDepositSelect(category);
-  } else {
-    paidFromDepositSelect.disabled = true;
-  }
-}
-function setPaidFromDepositVisible(visible) {
-  if (!visible) {
-    paidFromDepositCheckbox.checked = false;
-    paidFromDepositSelect.innerHTML = '<option value="">— Select —</option>';
-    paidFromDepositSelect.disabled = true;
-    paidFromDepositSection.classList.add('hidden');
-  } else {
-    refreshPaidFromDepositUI();
-  }
 }
 
 function setDefaultsToNow() {
@@ -727,14 +580,16 @@ contactSelect.addEventListener('change', () => {
   }
 });
 
-const depositCheckbox = document.getElementById('depositCheckbox');
-const depositMethod = document.getElementById('depositMethod');
+// ---- Deposit -- Scan / Cash / Wise / Passport. An amount is required for
+// every method except Passport (nothing but the passport itself is held
+// in that case).
+const depositSelect = document.getElementById('deposit');
 const depositAmount = document.getElementById('depositAmount');
-const DEPOSIT_METHODS_NEEDING_AMOUNT = ['Scan', 'Wise', 'Revolut'];
-
+function depositNeedsAmount() {
+  return depositSelect.value !== '' && depositSelect.value !== 'Passport';
+}
 function refreshDepositAmountVisibility() {
-  const needsAmount = depositCheckbox.checked && DEPOSIT_METHODS_NEEDING_AMOUNT.includes(depositMethod.value);
-  if (needsAmount) {
+  if (depositNeedsAmount()) {
     depositAmount.classList.remove('hidden');
     depositAmount.required = true;
   } else {
@@ -743,23 +598,7 @@ function refreshDepositAmountVisibility() {
     depositAmount.value = '';
   }
 }
-
-depositCheckbox.addEventListener('change', () => {
-  depositMethod.disabled = !depositCheckbox.checked;
-  if (!depositCheckbox.checked) {
-    depositMethod.value = '';
-  }
-  refreshDepositAmountVisibility();
-});
-depositMethod.addEventListener('change', refreshDepositAmountVisibility);
-
-const paidFromDepositCheckbox = document.getElementById('paidFromDepositCheckbox');
-const paidFromDepositSelect = document.getElementById('paidFromDepositSelect');
-const paidFromDepositSection = document.getElementById('paidFromDepositSection');
-paidFromDepositCheckbox.addEventListener('change', refreshPaidFromDepositUI);
-// Switching payment method while the section is visible refreshes which
-// deposit category (if any) the dropdown draws from.
-document.getElementById('paidBy').addEventListener('change', () => { if (entrySource === 'extend') refreshPaidFromDepositUI(); });
+depositSelect.addEventListener('change', refreshDepositAmountVisibility);
 
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -767,8 +606,6 @@ form.addEventListener('submit', async (e) => {
   setAllButtonsDisabled(true);
   submitBtn.textContent = 'Saving…';
 
-  const rentingDateFrom = document.getElementById('rentingDateFrom').value;
-  const returnDate = document.getElementById('returnDate').value;
   const totalPrice = document.getElementById('totalPrice').value;
 
   if (totalPrice === '' || totalPrice === null || isNaN(Number(totalPrice))) {
@@ -780,55 +617,34 @@ form.addEventListener('submit', async (e) => {
     return;
   }
 
-  if (entrySource === 'extend' && paidFromDepositCheckbox.checked && !paidFromDepositSelect.value) {
-    statusBox.textContent = 'Please select which deposit this extension was paid from, or untick the checkbox.';
+  if (depositNeedsAmount() && (depositAmount.value === '' || isNaN(Number(depositAmount.value)))) {
+    statusBox.textContent = 'Please enter a deposit amount, or switch the deposit to Passport.';
     statusBox.className = 'status err';
     setAllButtonsDisabled(false);
     submitBtn.textContent = 'Add to sheet';
+    depositAmount.focus();
     return;
   }
 
   const baseContact = contactSelect.value === 'other' ? contactOther.value.trim() : contactSelect.value;
 
-  function computeDays(fromStr, toStr) {
-    if (!fromStr || !toStr) return null;
-    const from = new Date(fromStr + 'T00:00:00');
-    const to = new Date(toStr + 'T00:00:00');
-    const diff = Math.round((to - from) / 86400000);
-    return diff > 0 ? diff : 1;
-  }
-
-  const days = computeDays(rentingDateFrom, returnDate);
-  const isDeal = document.getElementById('dealCheckbox').checked;
-  let contactWithDetails = baseContact;
-  if (baseContact && totalPrice && days) {
-    contactWithDetails = baseContact + ' (' + totalPrice + ', ' + days + (days === 1 ? ' day' : ' days') + ')' + (isDeal ? ' Deal' : '');
-  }
-
   const payload = {
+    action: 'addContract',
     name: document.getElementById('name').value.trim(),
     nationality: document.getElementById('nationality').value.trim(),
     passport: document.getElementById('passport').value.trim(),
-    contact: contactWithDetails,
+    number: document.getElementById('number').value.trim(),
+    contact: baseContact,
     bikeModel: document.getElementById('bikeModel').value.trim(),
-    rentingDateFrom: rentingDateFrom,
-    returnDate: returnDate,
+    rentingDateFrom: document.getElementById('rentingDateFrom').value,
+    returnDate: document.getElementById('returnDate').value,
     returnTime: document.getElementById('returnTime').value,
     deliverToHotel: document.getElementById('deliverToHotel').value,
     totalPrice: totalPrice,
     paidBy: document.getElementById('paidBy').value,
-    deposit: depositCheckbox.checked ? depositMethod.value : '',
-    depositAmount: (depositCheckbox.checked && DEPOSIT_METHODS_NEEDING_AMOUNT.includes(depositMethod.value)) ? depositAmount.value : '',
-    source: entrySource
+    deposit: depositSelect.value,
+    depositAmount: depositNeedsAmount() ? depositAmount.value : ''
   };
-
-  // Add-only, extend-only: never sent for a brand-new customer, matching
-  // the server's own isExtendSource check in Code.gs (belt and suspenders).
-  if (entrySource === 'extend' && paidFromDepositCheckbox.checked && paidFromDepositSelect.value) {
-    payload.paidFromDeposit = true;
-    payload.depositCategory = depositCategoryForPaidBy(document.getElementById('paidBy').value);
-    payload.depositRow = Number(paidFromDepositSelect.value);
-  }
 
   startSaveProgress();
   try {
@@ -844,14 +660,10 @@ form.addEventListener('submit', async (e) => {
         statusBox.textContent = 'Added — "' + payload.name + '" saved, but: ' + data.warning;
         statusBox.className = 'status warn';
       } else {
-        // checksTotal/checksPassed come from the server's post-write
-        // verification: it re-reads every cell it wrote (customer row,
-        // monthly income row, cash row, bikes total, deposit cells) and
-        // confirms each landed correctly.
         const checksNote = data.checksTotal
           ? ' ✓ Verified: ' + data.checksPassed + '/' + data.checksTotal + ' write-back checks passed.'
           : '';
-        statusBox.textContent = 'Added — "' + payload.name + '" saved to the sheet.' + checksNote;
+        statusBox.textContent = 'Added — "' + payload.name + '" saved to the Contract sheet.' + checksNote;
         statusBox.className = 'status ok';
       }
       sessionCount++;
@@ -859,14 +671,10 @@ form.addEventListener('submit', async (e) => {
       form.reset();
       contactOther.classList.add('hidden');
       contactOther.required = false;
-      depositMethod.disabled = true;
-      depositMethod.required = false;
-      depositAmount.classList.add('hidden');
-      depositAmount.required = false;
-      entrySource = 'direct';
-      setDepositSectionVisible(true);
-      setPaidFromDepositVisible(false);
+      refreshDepositAmountVisibility();
       setDefaultsToNow();
+      sheetRows = null;
+      rowsPromise = null;
     } else {
       throw new Error(data.error || 'Unknown error');
     }
@@ -882,62 +690,6 @@ form.addEventListener('submit', async (e) => {
 
 setDefaultsToNow();
 
-// ---- Prefill from a redirect (e.g. the "Extend" flow on Bikes Status,
-// which closes out a long-extension booking and sends the customer here
-// to start a fresh rental record for the new period). Query params
-// override the "now" defaults set above where present. ----
-function prefillFromQueryParams() {
-  const qp = new URLSearchParams(window.location.search);
-  if (![...qp.keys()].length) return;
-
-  const setVal = (id, key) => {
-    if (qp.has(key)) document.getElementById(id).value = qp.get(key) || '';
-  };
-
-  setVal('name', 'name');
-  setVal('nationality', 'nationality');
-  setVal('passport', 'passport');
-  setVal('bikeModel', 'bikeModel');
-  setVal('rentingDateFrom', 'rentingDateFrom');
-  setVal('returnDate', 'returnDate');
-  setVal('returnTime', 'returnTime');
-  setVal('deliverToHotel', 'deliverToHotel');
-  setVal('totalPrice', 'totalPrice');
-  setVal('paidBy', 'paidBy');
-
-  // Contact is a <select> plus a free-text "other" fallback — try to match
-  // the incoming value to one of the fixed options, otherwise drop it into
-  // the "Other…" field so nothing gets silently lost.
-  if (qp.has('contact')) {
-    const raw = qp.get('contact') || '';
-    // Strip off the "(price, N days) Deal" suffix this app itself appends
-    // when it originally saved this contact value, so re-editing doesn't
-    // double it up.
-    const baseContact = raw.replace(/\s*\([^()]*\)(?:\s*Deal)?\s*$/i, '').trim();
-    const knownValues = Array.from(contactSelect.options).map(o => o.value);
-    if (baseContact && knownValues.includes(baseContact)) {
-      contactSelect.value = baseContact;
-    } else if (baseContact) {
-      contactSelect.value = 'other';
-      contactOther.classList.remove('hidden');
-      contactOther.required = true;
-      contactOther.value = baseContact;
-    }
-  }
-
-  if (qp.get('source') === 'extend') {
-    entrySource = 'extend';
-    setDepositSectionVisible(false);
-    setPaidFromDepositVisible(true);
-    statusBox.textContent = 'Prefilled from an extended rental — no deposit needed here. Check the details, then save.';
-  } else {
-    statusBox.textContent = 'Prefilled from an extended rental — check the details, then save.';
-  }
-  statusBox.className = 'status ok';
-}
-
-prefillFromQueryParams();
-
 /* ---------------- Search / autocomplete ---------------- */
 
 const tabAdd = document.getElementById('tabAdd');
@@ -947,7 +699,7 @@ const searchView = document.getElementById('searchView');
 let sheetRows = null;      // cached rows from the sheet
 let rowsPromise = null;    // in-flight fetch
 
-const searchKeys = ['name','nationality','passport','contact','bikeModel',
+const searchKeys = ['name','nationality','passport','number','contact','bikeModel',
                      'rentingDateFrom','returnDate','deliverToHotel','paidBy'];
 
 function setLoadStatus(msg) {
@@ -960,7 +712,7 @@ function setLoadStatus(msg) {
 function loadRows() {
   if (rowsPromise) return rowsPromise;
   setLoadStatus('Loading records…');
-  rowsPromise = fetch(scriptUrl)
+  rowsPromise = fetch(scriptUrl + '?action=contracts')
     .then(res => res.json())
     .then(data => {
       if (!data.success) throw new Error(data.error || 'Could not load data');
@@ -982,16 +734,9 @@ loadRows();
 
 // ---- Canonical bike list (from the Parts & Oil sheet) for the main
 // "Bike model" field, so staff pick from the real list instead of
-// free-typing a name that might not match (typos, missing digits, etc).
-// Mirrors the search box on the Bikes Status page: shows "Loading bikes…"
-// until the list arrives, then narrows suggestions as you type. ----
+// free-typing a name that might not match. ----
 let bikeNames = [];
 let bikeNamesPromise = null;
-
-// Bike Tax category rows (make/model/plate/etc.), fetched alongside the
-// bike list so plate numbers can be matched onto search results without a
-// separate round trip.
-let bikeTaxRows = [];
 
 function setBikeModelLoadStatus(msg) {
   const el = document.getElementById('bikeModelLoadStatus');
@@ -1002,9 +747,8 @@ function setBikeModelLoadStatus(msg) {
 
 // ---- Page gate: the whole page (tabs + form) stays hidden behind a red
 // "Loading bikes…" card until the bikes list has actually arrived from
-// the spreadsheet, so an entry can never be started before the bike
-// autocomplete and plate data are ready. On failure the card shows the
-// error and a "Try again" button instead of leaving the page stuck. ----
+// the spreadsheet. On failure the card shows the error and a "Try again"
+// button instead of leaving the page stuck. ----
 const pageGate = document.getElementById('pageGate');
 const pageGateMsg = document.getElementById('pageGateMsg');
 document.getElementById('pageGateRetry').addEventListener('click', () => {
@@ -1025,7 +769,6 @@ function loadBikeNames() {
         .map(r => (r[bikeHeader] || '').toString().trim())
         .filter(Boolean)
         .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-      bikeTaxRows = data.categoryRows || [];
       setBikeModelLoadStatus(null);
       renderResults();
       // Bikes are in -- open the page up.
@@ -1034,8 +777,6 @@ function loadBikeNames() {
     })
     .catch(err => {
       setBikeModelLoadStatus('Could not load bike list: ' + err.message);
-      // Keep the page gated and show the error + retry on the card
-      // (unless a previous attempt already succeeded and opened the page).
       if (!document.body.classList.contains('bikes-ready')) {
         pageGate.classList.add('gate-error');
         pageGateMsg.textContent = 'Could not load the bikes list: ' + err.message;
@@ -1047,15 +788,6 @@ function loadBikeNames() {
 }
 
 loadBikeNames();
-
-// Finds the plate number for a customer record's bike text by fuzzy-
-// matching it against the Bike Tax sheet's bike names. Returns '' if the
-// plate data hasn't loaded yet or no match is found, rather than throwing.
-function plateForBike(bikeModelText) {
-  if (!bikeModelText || !bikeTaxRows.length) return '';
-  const match = bikeTaxRows.find(r => bikeNamesMatch(r.bike, bikeModelText));
-  return match ? (match.plate || '') : '';
-}
 
 function attachBikeModelAutocomplete() {
   const input = document.getElementById('bikeModel');
@@ -1092,8 +824,6 @@ function attachBikeModelAutocomplete() {
   input.addEventListener('keydown', (e) => {
     const items = Array.from(list.children);
     if (e.key === 'Enter') {
-      // Enter confirms the current text (list is already narrowed live)
-      // and closes the suggestion dropdown, same as Bikes Status.
       e.preventDefault();
       if (hiIndex >= 0 && list._options) {
         input.value = list._options[hiIndex];
@@ -1246,52 +976,6 @@ tabSearch.addEventListener('click', () => {
 });
 
 // Case-insensitive, multi-word "contains all tokens" matcher
-// Same fuzzy bike-name matching used on the Bikes Status page, so a plate
-// number can be looked up even when the customer record's bike text isn't
-// an exact match for the Bike Tax sheet's name (extra words, parentheses,
-// case differences, etc).
-function normalizeBikeName(s) {
-  return (s || '').toString()
-    .toLowerCase()
-    .replace(/\([^)]*\)/g, ' ')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-    .replace(/\s+/g, ' ');
-}
-
-// Words/numerals used to tell apart otherwise-identical bike names that are
-// actually different bikes — e.g. "Gran Filano" and "Gran Filano Two" are
-// two separate bikes, not a loose match of the same one.
-const DISTINGUISHING_SUFFIXES = new Set([
-  'one','two','three','four','five','six','seven','eight','nine','ten',
-  'i','ii','iii','iv','v','vi','vii','viii','ix','x',
-  '1','2','3','4','5','6','7','8','9','10'
-]);
-
-function bikeNamesMatch(a, b) {
-  const na = normalizeBikeName(a);
-  const nb = normalizeBikeName(b);
-  if (!na || !nb) return false;
-  if (na === nb) return true;
-
-  const ta = na.split(' ');
-  const tb = nb.split(' ');
-  const shorter = ta.length <= tb.length ? ta : tb;
-  const longer = ta.length <= tb.length ? tb : ta;
-
-  // Fuzzy match allowed when the shorter name is a clean word-for-word
-  // prefix of the longer one — UNLESS the extra trailing word(s) are a
-  // distinguishing number/ordinal, in which case it's a different bike.
-  const isPrefix = shorter.every((tok, i) => tok === longer[i]);
-  if (isPrefix) {
-    const extra = longer.slice(shorter.length);
-    if (extra.some(t => DISTINGUISHING_SUFFIXES.has(t))) return false;
-    return true;
-  }
-
-  return na.includes(nb) || nb.includes(na);
-}
-
 function tokenMatch(value, query) {
   if (!query) return true;
   const v = (value || '').toString().toLowerCase();
@@ -1403,13 +1087,13 @@ function renderResults() {
   box.innerHTML = matches.slice(0, 60).map(r => `
     <div class="result-card">
       <div class="rc-title">${highlight(r.name, vals.name)} — ${highlight(r.bikeModel, vals.bikeModel)}</div>
-      <div class="rc-row"><b>Plate no.:</b> ${plateForBike(r.bikeModel) || '—'}</div>
       <div class="rc-row"><b>Nationality:</b> ${highlight(r.nationality, vals.nationality) || '—'} &nbsp; <b>Passport:</b> ${highlight(r.passport, vals.passport) || '—'}</div>
-      <div class="rc-row"><b>Contact:</b> ${highlight(r.contact, vals.contact) || '—'}</div>
+      <div class="rc-row"><b>Number:</b> ${highlight(r.number, vals.number) || '—'} &nbsp; <b>Contact:</b> ${highlight(r.contact, vals.contact) || '—'}</div>
       <div class="rc-row"><b>Rented:</b> ${formatDateDisplay(r.rentingDateFrom)}</div>
       <div class="rc-row"><b>Return:</b> ${formatDateDisplay(r.returnDate)}</div>
       <div class="rc-row"><b>Return time:</b> ${formatTimeDisplay(r.returnTime)}</div>
       <div class="rc-row"><b>Deliver to hotel:</b> ${highlight(r.deliverToHotel, vals.deliverToHotel) || '—'} &nbsp; <b>Paid:</b> ${r.totalPrice ? '฿' + r.totalPrice : '—'} via ${highlight(r.paidBy, vals.paidBy) || '—'}</div>
+      <div class="rc-row"><b>Deposit:</b> ${r.deposit || '—'}${(r.deposit && r.deposit.toLowerCase() !== 'passport' && r.depositAmount) ? ' (฿' + r.depositAmount + ')' : ''}</div>
     </div>
   `).join('');
 }
@@ -1497,10 +1181,7 @@ document.getElementById('clearSearch').addEventListener('click', () => {
    writes the selected date out in words -- e.g. "8 July 2026" -- so a
    date like 08/07 can never be misread as August 7 (American style).
    You still pick the date in the box exactly as before; this only
-   changes what's DISPLAYED, never what's saved to the sheet.
-   Handles date boxes created later (e.g. the Return picker on Bikes
-   Status) via a DOM observer, and values set by code (prefills,
-   defaults) via a light polling loop. */
+   changes what's DISPLAYED, never what's saved to the sheet. */
 (function () {
   var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'];
@@ -1540,7 +1221,6 @@ document.getElementById('clearSearch').addEventListener('click', () => {
     }
   }
 
-  // React immediately when the user picks/types a date.
   document.addEventListener('change', function (e) {
     if (e.target && e.target.type === 'date') refreshDateWordLabels();
   }, true);
@@ -1548,16 +1228,11 @@ document.getElementById('clearSearch').addEventListener('click', () => {
     if (e.target && e.target.type === 'date') refreshDateWordLabels();
   }, true);
 
-  // Catch date boxes that get created after page load (re-rendered lists,
-  // pop-up pickers). refreshDateWordLabels is idempotent, so the observer
-  // re-firing on its own label insertions settles immediately.
   if (window.MutationObserver) {
     new MutationObserver(refreshDateWordLabels)
       .observe(document.documentElement, { childList: true, subtree: true });
   }
 
-  // Catch values set by code (defaults, prefills from other pages), which
-  // fire no events. A few date boxes at 2 checks/second costs nothing.
   setInterval(refreshDateWordLabels, 500);
 
   if (document.readyState === 'loading') {
